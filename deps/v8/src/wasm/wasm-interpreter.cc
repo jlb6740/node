@@ -2,10 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/wasm/wasm-interpreter.h"
+
 #include <atomic>
 #include <type_traits>
-
-#include "src/wasm/wasm-interpreter.h"
 
 #include "src/base/overflowing-math.h"
 #include "src/codegen/assembler-inl.h"
@@ -37,7 +37,7 @@ using base::ReadLittleEndianValue;
 using base::ReadUnalignedValue;
 using base::WriteLittleEndianValue;
 using base::WriteUnalignedValue;
-
+long opcode_instrument[256] = {0};
 #define TRACE(...)                                        \
   do {                                                    \
     if (FLAG_trace_wasm_interpreter) PrintF(__VA_ARGS__); \
@@ -814,6 +814,8 @@ class SideTable : public ZoneObject {
         TRACE("handler @%u: %s -> try @%u\n", i.pc_offset(), OpcodeName(opcode),
               static_cast<uint32_t>(c->pc - code->start));
       }
+      // printf("WASM_OPCODE: %d\n", opcode);
+      ++opcode_instrument[opcode];
       switch (opcode) {
         case kExprBlock:
         case kExprLoop: {
@@ -964,6 +966,9 @@ class SideTable : public ZoneObject {
       if (WasmOpcodes::IsUnconditionalJump(opcode)) {
         control_stack.back().unreachable = true;
       }
+    }
+    for (int i = 0; i < 256; ++i) {
+      printf("%0x:%ld\n", i, opcode_instrument[i]);
     }
     DCHECK_EQ(0, control_stack.size());
     DCHECK_EQ(func_arity, stack_height);
@@ -1305,6 +1310,7 @@ class ThreadImpl {
     DCHECK(isolate->has_pending_exception());
     DCHECK_LT(0, activations_.size());
     Activation& act = activations_.back();
+
     while (frames_.size() > act.fp) {
       Frame& frame = frames_.back();
       InterpreterCode* code = frame.code;
@@ -1322,6 +1328,7 @@ class ThreadImpl {
       ResetStack(frame.sp);
       frames_.pop_back();
     }
+
     TRACE("----- UNWIND -----\n");
     DCHECK_EQ(act.fp, frames_.size());
     DCHECK_EQ(act.sp, StackHeight());
@@ -4132,7 +4139,9 @@ ControlTransferMap WasmInterpreter::ComputeControlTransfersForTesting(
       &function, BodyLocalDecls(zone), start, end, nullptr, nullptr, nullptr};
 
   // Now compute and return the control transfers.
+
   SideTable side_table(zone, module, &code);
+
   return side_table.map_;
 }
 
