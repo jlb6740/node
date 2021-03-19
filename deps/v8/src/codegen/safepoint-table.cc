@@ -11,25 +11,33 @@
 #include "src/execution/frames-inl.h"
 #include "src/utils/ostreams.h"
 
+#if V8_ENABLE_WEBASSEMBLY
+#include "src/wasm/wasm-code-manager.h"
+#endif  // V8_ENABLE_WEBASSEMBLY
+
 namespace v8 {
 namespace internal {
 
+SafepointTable::SafepointTable(Isolate* isolate, Address pc, Code code)
+    : SafepointTable(code.InstructionStart(isolate, pc),
+                     code.SafepointTableAddress(), code.stack_slots(), true) {}
+
+#if V8_ENABLE_WEBASSEMBLY
+SafepointTable::SafepointTable(const wasm::WasmCode* code)
+    : SafepointTable(code->instruction_start(),
+                     code->instruction_start() + code->safepoint_table_offset(),
+                     code->stack_slots(), false) {}
+#endif  // V8_ENABLE_WEBASSEMBLY
+
 SafepointTable::SafepointTable(Address instruction_start,
-                               size_t safepoint_table_offset,
+                               Address safepoint_table_address,
                                uint32_t stack_slots, bool has_deopt)
     : instruction_start_(instruction_start),
       stack_slots_(stack_slots),
-      has_deopt_(has_deopt) {
-  Address header = instruction_start_ + safepoint_table_offset;
-  length_ = Memory<uint32_t>(header + kLengthOffset);
-  entry_size_ = Memory<uint32_t>(header + kEntrySizeOffset);
-  pc_and_deoptimization_indexes_ = header + kHeaderSize;
-  entries_ = pc_and_deoptimization_indexes_ + (length_ * kFixedEntrySize);
-}
-
-SafepointTable::SafepointTable(Code code)
-    : SafepointTable(code.InstructionStart(), code.safepoint_table_offset(),
-                     code.stack_slots(), true) {}
+      has_deopt_(has_deopt),
+      safepoint_table_address_(safepoint_table_address),
+      length_(ReadLength(safepoint_table_address)),
+      entry_size_(ReadEntrySize(safepoint_table_address)) {}
 
 unsigned SafepointTable::find_return_pc(unsigned pc_offset) {
   for (unsigned i = 0; i < length(); i++) {
@@ -40,7 +48,6 @@ unsigned SafepointTable::find_return_pc(unsigned pc_offset) {
     }
   }
   UNREACHABLE();
-  return 0;
 }
 
 SafepointEntry SafepointTable::FindEntry(Address pc) const {
@@ -60,7 +67,6 @@ SafepointEntry SafepointTable::FindEntry(Address pc) const {
     }
   }
   UNREACHABLE();
-  return SafepointEntry();
 }
 
 void SafepointTable::PrintEntry(unsigned index,
@@ -87,12 +93,11 @@ void SafepointTable::PrintBits(std::ostream& os,  // NOLINT
   }
 }
 
-Safepoint SafepointTableBuilder::DefineSafepoint(
-    Assembler* assembler, Safepoint::DeoptMode deopt_mode) {
+Safepoint SafepointTableBuilder::DefineSafepoint(Assembler* assembler) {
   deoptimization_info_.push_back(
-      DeoptimizationInfo(zone_, assembler->pc_offset()));
+      DeoptimizationInfo(zone_, assembler->pc_offset_for_safepoint()));
   DeoptimizationInfo& new_info = deoptimization_info_.back();
-  return Safepoint(new_info.indexes);
+  return Safepoint(new_info.stack_indexes, &new_info.register_indexes);
 }
 
 unsigned SafepointTableBuilder::GetCodeOffset() const {
@@ -119,7 +124,7 @@ void SafepointTableBuilder::Emit(Assembler* assembler, int bits_per_entry) {
   RemoveDuplicates();
 
   // Make sure the safepoint table is properly aligned. Pad with nops.
-  assembler->Align(kIntSize);
+  assembler->Align(Code::kMetadataAlignment);
   assembler->RecordComment(";;; Safepoint table.");
   offset_ = assembler->pc_offset();
 
@@ -143,14 +148,22 @@ void SafepointTableBuilder::Emit(Assembler* assembler, int bits_per_entry) {
   STATIC_ASSERT(SafepointTable::kFixedEntrySize == 3 * kIntSize);
   for (const DeoptimizationInfo& info : deoptimization_info_) {
     assembler->dd(info.pc);
-    assembler->dd(info.deopt_index);
+    if (info.register_indexes) {
+      // We emit the register indexes in the same bits as the deopt_index.
+      // Register indexes and deopt_index should not exist at the same time.
+      DCHECK_EQ(info.deopt_index,
+                static_cast<uint32_t>(Safepoint::kNoDeoptimizationIndex));
+      assembler->dd(info.register_indexes);
+    } else {
+      assembler->dd(info.deopt_index);
+    }
     assembler->dd(info.trampoline);
   }
 
   // Emit table of bitmaps.
   ZoneVector<uint8_t> bits(bytes_per_entry, 0, zone_);
   for (const DeoptimizationInfo& info : deoptimization_info_) {
-    ZoneChunkList<int>* indexes = info.indexes;
+    ZoneChunkList<int>* indexes = info.stack_indexes;
     std::fill(bits.begin(), bits.end(), 0);
 
     // Run through the indexes and build a bitmap.
@@ -194,12 +207,14 @@ bool SafepointTableBuilder::IsIdenticalExceptForPc(
     const DeoptimizationInfo& info1, const DeoptimizationInfo& info2) const {
   if (info1.deopt_index != info2.deopt_index) return false;
 
-  ZoneChunkList<int>* indexes1 = info1.indexes;
-  ZoneChunkList<int>* indexes2 = info2.indexes;
+  ZoneChunkList<int>* indexes1 = info1.stack_indexes;
+  ZoneChunkList<int>* indexes2 = info2.stack_indexes;
   if (indexes1->size() != indexes2->size()) return false;
   if (!std::equal(indexes1->begin(), indexes1->end(), indexes2->begin())) {
     return false;
   }
+
+  if (info1.register_indexes != info2.register_indexes) return false;
 
   return true;
 }

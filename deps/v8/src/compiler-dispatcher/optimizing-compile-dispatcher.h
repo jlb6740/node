@@ -18,6 +18,7 @@
 namespace v8 {
 namespace internal {
 
+class LocalHeap;
 class OptimizedCompilationJob;
 class RuntimeCallStats;
 class SharedFunctionInfo;
@@ -29,7 +30,6 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
         input_queue_capacity_(FLAG_concurrent_recompilation_queue_length),
         input_queue_length_(0),
         input_queue_shift_(0),
-        mode_(COMPILE),
         blocked_jobs_(0),
         ref_count_(0),
         recompilation_delay_(FLAG_concurrent_recompilation_delay) {
@@ -57,9 +57,13 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
 
   enum ModeFlag { COMPILE, FLUSH };
 
+  void FlushQueues(BlockingBehavior blocking_behavior,
+                   bool restore_function_code);
+  void FlushInputQueue();
   void FlushOutputQueue(bool restore_function_code);
-  void CompileNext(OptimizedCompilationJob* job, RuntimeCallStats* stats);
-  OptimizedCompilationJob* NextInput(bool check_if_flushing = false);
+  void CompileNext(OptimizedCompilationJob* job, RuntimeCallStats* stats,
+                   LocalIsolate* local_isolate);
+  OptimizedCompilationJob* NextInput(LocalIsolate* local_isolate);
 
   inline int InputQueueIndex(int i) {
     int result = (i + input_queue_shift_) % input_queue_capacity_;
@@ -82,8 +86,6 @@ class V8_EXPORT_PRIVATE OptimizingCompileDispatcher {
   // Used for job based recompilation which has multiple producers on
   // different threads.
   base::Mutex output_queue_mutex_;
-
-  std::atomic<ModeFlag> mode_;
 
   int blocked_jobs_;
 

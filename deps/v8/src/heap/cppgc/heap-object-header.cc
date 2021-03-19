@@ -4,13 +4,16 @@
 
 #include "src/heap/cppgc/heap-object-header.h"
 
-#include "include/cppgc/internals.h"
+#include "include/cppgc/internal/api-constants.h"
 #include "src/base/macros.h"
 #include "src/heap/cppgc/gc-info-table.h"
-#include "src/heap/cppgc/heap-object-header-inl.h"
+#include "src/heap/cppgc/heap-page.h"
+#include "src/heap/cppgc/sanitizers.h"
 
 namespace cppgc {
 namespace internal {
+
+STATIC_ASSERT((kAllocationGranularity % sizeof(HeapObjectHeader)) == 0);
 
 void HeapObjectHeader::CheckApiConstants() {
   STATIC_ASSERT(api_constants::kFullyConstructedBitMask ==
@@ -20,10 +23,22 @@ void HeapObjectHeader::CheckApiConstants() {
 }
 
 void HeapObjectHeader::Finalize() {
+#ifdef V8_USE_ADDRESS_SANITIZER
+  const size_t size =
+      IsLargeObject()
+          ? LargePage::From(BasePage::FromPayload(this))->ObjectSize()
+          : ObjectSize();
+  ASAN_UNPOISON_MEMORY_REGION(Payload(), size);
+#endif  // V8_USE_ADDRESS_SANITIZER
   const GCInfo& gc_info = GlobalGCInfoTable::GCInfoFromIndex(GetGCInfoIndex());
   if (gc_info.finalize) {
     gc_info.finalize(Payload());
   }
+}
+
+HeapObjectName HeapObjectHeader::GetName() const {
+  const GCInfo& gc_info = GlobalGCInfoTable::GCInfoFromIndex(GetGCInfoIndex());
+  return gc_info.name(Payload());
 }
 
 }  // namespace internal

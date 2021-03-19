@@ -37,6 +37,9 @@ class Node;
 using ::testing::Matcher;
 
 Matcher<Node*> IsDead();
+Matcher<Node*> IsUnreachable();
+Matcher<Node*> IsThrow();
+Matcher<Node*> IsStart();
 Matcher<Node*> IsEnd(const Matcher<Node*>& control0_matcher);
 Matcher<Node*> IsEnd(const Matcher<Node*>& control0_matcher,
                      const Matcher<Node*>& control1_matcher);
@@ -55,6 +58,8 @@ Matcher<Node*> IsLoop(const Matcher<Node*>& control0_matcher,
 Matcher<Node*> IsLoop(const Matcher<Node*>& control0_matcher,
                       const Matcher<Node*>& control1_matcher,
                       const Matcher<Node*>& control2_matcher);
+Matcher<Node*> IsLoopExitValue(const Matcher<MachineRepresentation> rep_matcher,
+                               const Matcher<Node*>& value_matcher);
 Matcher<Node*> IsIfTrue(const Matcher<Node*>& control_matcher);
 Matcher<Node*> IsIfFalse(const Matcher<Node*>& control_matcher);
 Matcher<Node*> IsIfSuccess(const Matcher<Node*>& control_matcher);
@@ -349,6 +354,12 @@ Matcher<Node*> IsUnalignedStore(
     const Matcher<Node*>& base_matcher, const Matcher<Node*>& index_matcher,
     const Matcher<Node*>& value_matcher, const Matcher<Node*>& effect_matcher,
     const Matcher<Node*>& control_matcher);
+Matcher<Node*> IsStoreToObject(const Matcher<ObjectAccess>& rep_matcher,
+                               const Matcher<Node*>& base_matcher,
+                               const Matcher<Node*>& index_matcher,
+                               const Matcher<Node*>& value_matcher,
+                               const Matcher<Node*>& effect_matcher,
+                               const Matcher<Node*>& control_matcher);
 Matcher<Node*> IsStackSlot(const Matcher<StackSlotRepresentation>& rep_matcher);
 Matcher<Node*> IsWord32Popcnt(const Matcher<Node*>& value_matcher);
 Matcher<Node*> IsWord32And(const Matcher<Node*>& lhs_matcher,
@@ -412,6 +423,10 @@ Matcher<Node*> IsInt64Mul(const Matcher<Node*>& lhs_matcher,
                           const Matcher<Node*>& rhs_matcher);
 Matcher<Node*> IsInt64Div(const Matcher<Node*>& lhs_matcher,
                           const Matcher<Node*>& rhs_matcher);
+Matcher<Node*> IsInt64LessThan(const Matcher<Node*>& lhs_matcher,
+                               const Matcher<Node*>& rhs_matcher);
+Matcher<Node*> IsUint64LessThan(const Matcher<Node*>& lhs_matcher,
+                                const Matcher<Node*>& rhs_matcher);
 Matcher<Node*> IsJSAdd(const Matcher<Node*>& lhs_matcher,
                        const Matcher<Node*>& rhs_matcher);
 Matcher<Node*> IsJSParseInt(const Matcher<Node*>& lhs_matcher,

@@ -6,10 +6,12 @@
 #define V8_COMPILER_SIMD_SCALAR_LOWERING_H_
 
 #include "src/compiler/common-operator.h"
+#include "src/compiler/diamond.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/machine-graph.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-marker.h"
+#include "src/compiler/simplified-operator.h"
 #include "src/zone/zone-containers.h"
 
 namespace v8 {
@@ -23,6 +25,7 @@ namespace compiler {
 class SimdScalarLowering {
  public:
   SimdScalarLowering(MachineGraph* mcgraph,
+                     SimplifiedOperatorBuilder* simplified,
                      Signature<MachineRepresentation>* signature);
 
   void LowerGraph();
@@ -63,6 +66,7 @@ class SimdScalarLowering {
   Graph* graph() const { return mcgraph_->graph(); }
   MachineOperatorBuilder* machine() const { return mcgraph_->machine(); }
   CommonOperatorBuilder* common() const { return mcgraph_->common(); }
+  SimplifiedOperatorBuilder* simplified() const { return simplified_; }
   Signature<MachineRepresentation>* signature() const { return signature_; }
 
   void LowerNode(Node* node);
@@ -73,12 +77,16 @@ class SimdScalarLowering {
   bool HasReplacement(size_t index, Node* node);
   Node** GetReplacements(Node* node);
   int ReplacementCount(Node* node);
+  void Float64ToInt64(Node** replacements, Node** result);
   void Float32ToInt32(Node** replacements, Node** result);
   void Int32ToFloat32(Node** replacements, Node** result);
+  void Int64ToFloat64(Node** replacements, Node** result);
+  void Int64ToInt32(Node** replacements, Node** result);
   template <typename T>
   void Int32ToSmallerInt(Node** replacements, Node** result);
   template <typename T>
   void SmallerIntToInt32(Node** replacements, Node** result);
+  void Int32ToInt64(Node** replacements, Node** result);
   Node** GetReplacementsWithType(Node* node, SimdType type);
   SimdType ReplacementType(Node* node);
   void PreparePhiReplacement(Node* phi);
@@ -89,6 +97,8 @@ class SimdScalarLowering {
   void LowerStoreOp(Node* node);
   void LowerBinaryOp(Node* node, SimdType input_rep_type, const Operator* op,
                      bool not_horizontal = true);
+  Node* ConstructPhiForComparison(Diamond d, SimdType rep_type, int true_value,
+                                  int false_value);
   void LowerCompareOp(Node* node, SimdType input_rep_type, const Operator* op,
                       bool invert_inputs = false);
   Node* FixUpperBits(Node* input, int32_t shift);
@@ -110,8 +120,21 @@ class SimdScalarLowering {
   Node* BuildF64Trunc(Node* input);
   void LowerNotEqual(Node* node, SimdType input_rep_type, const Operator* op);
   MachineType MachineTypeFrom(SimdType simdType);
+  void LowerBitMaskOp(Node* node, SimdType rep_type, int msb_index);
+  void LowerAllTrueOp(Node* node, SimdType rep_type);
+  void LowerFloatPseudoMinMax(Node* node, const Operator* op, bool is_max,
+                              SimdType type);
+  void LowerExtMul(Node* node, const Operator* op, SimdType output_type,
+                   SimdType input_type, bool low, bool is_signed);
+
+  // Extends node, which is a lowered node of type rep_type, e.g. int8, int16,
+  // int32 to a 32-bit or 64-bit node. node should be a lowered node (i.e. not a
+  // SIMD node). The assumption here is that small ints are stored sign
+  // extended.
+  Node* ExtendNode(Node* node, SimdType rep_type, bool is_signed);
 
   MachineGraph* const mcgraph_;
+  SimplifiedOperatorBuilder* const simplified_;
   NodeMarker<State> state_;
   ZoneDeque<NodeState> stack_;
   Replacement* replacements_;

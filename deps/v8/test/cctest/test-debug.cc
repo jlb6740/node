@@ -1354,6 +1354,49 @@ TEST(BreakPointApiAccessor) {
   CheckDebuggerUnloaded();
 }
 
+TEST(Regress1163547) {
+  LocalContext env;
+  v8::HandleScope scope(env->GetIsolate());
+
+  DebugEventCounter delegate;
+  v8::debug::SetDebugDelegate(env->GetIsolate(), &delegate);
+
+  i::Handle<i::BreakPoint> bp;
+
+  auto constructor_tmpl = v8::FunctionTemplate::New(env->GetIsolate());
+  auto prototype_tmpl = constructor_tmpl->PrototypeTemplate();
+  auto accessor_tmpl =
+      v8::FunctionTemplate::New(env->GetIsolate(), NoOpFunctionCallback);
+  prototype_tmpl->SetAccessorProperty(v8_str("f"), accessor_tmpl);
+
+  auto constructor =
+      constructor_tmpl->GetFunction(env.local()).ToLocalChecked();
+  env->Global()->Set(env.local(), v8_str("C"), constructor).ToChecked();
+
+  CompileRun("o = new C();");
+  v8::Local<v8::Function> function =
+      CompileRun("Object.getOwnPropertyDescriptor(C.prototype, 'f').get")
+          .As<v8::Function>();
+
+  // === Test API accessor ===
+  break_point_hit_count = 0;
+
+  // At this point, the C.prototype - which holds the "f" accessor - is in
+  // dictionary mode.
+  auto constructor_fun =
+      Handle<i::JSFunction>::cast(v8::Utils::OpenHandle(*constructor));
+  CHECK(!i::JSObject::cast(constructor_fun->prototype()).HasFastProperties());
+
+  // Run with breakpoint.
+  bp = SetBreakPoint(function, 0);
+
+  CompileRun("o.f");
+  CHECK_EQ(1, break_point_hit_count);
+
+  v8::debug::SetDebugDelegate(env->GetIsolate(), nullptr);
+  CheckDebuggerUnloaded();
+}
+
 TEST(BreakPointInlineApiFunction) {
   i::FLAG_allow_natives_syntax = true;
   LocalContext env;
@@ -2848,8 +2891,8 @@ TEST(PauseInScript) {
   const char* src = "(function (evt) {})";
   const char* script_name = "StepInHandlerTest";
 
-  v8::ScriptOrigin origin(v8_str(env->GetIsolate(), script_name),
-                          v8::Integer::New(env->GetIsolate(), 0));
+  v8::ScriptOrigin origin(env->GetIsolate(),
+                          v8_str(env->GetIsolate(), script_name));
   v8::Local<v8::Script> script =
       v8::Script::Compile(context, v8_str(env->GetIsolate(), src), &origin)
           .ToLocalChecked();
@@ -3226,7 +3269,7 @@ TEST(DebugScriptLineEndsAreAscending) {
                                         "  debugger;\n"
                                         "}\n");
 
-  v8::ScriptOrigin origin1 = v8::ScriptOrigin(v8_str(isolate, "name"));
+  v8::ScriptOrigin origin1 = v8::ScriptOrigin(isolate, v8_str(isolate, "name"));
   v8::Local<v8::Script> script1 =
       v8::Script::Compile(env.local(), script, &origin1).ToLocalChecked();
   USE(script1);
@@ -3601,34 +3644,30 @@ TEST(NoDebugBreakInAfterCompileEventListener) {
 
 
 // Test that the debug break flag works with function.apply.
-TEST(DebugBreakFunctionApply) {
+TEST(RepeatDebugBreak) {
+  // Test that we can repeatedly set a break without JS execution continuing.
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
   v8::Local<v8::Context> context = env.local();
 
   // Create a function for testing breaking in apply.
-  v8::Local<v8::Function> foo = CompileFunction(
-      &env,
-      "function baz(x) { }"
-      "function bar(x) { baz(); }"
-      "function foo(){ bar.apply(this, [1]); }",
-      "foo");
+  v8::Local<v8::Function> foo =
+      CompileFunction(&env, "function foo() {}", "foo");
 
-  // Register a debug event listener which steps and counts.
+  // Register a debug delegate which repeatedly sets a break and counts.
   DebugEventBreakMax delegate;
   v8::debug::SetDebugDelegate(env->GetIsolate(), &delegate);
 
   // Set the debug break flag before calling the code using function.apply.
   v8::debug::SetBreakOnNextFunctionCall(env->GetIsolate());
 
-  // Limit the number of debug breaks. This is a regression test for issue 493
-  // where this test would enter an infinite loop.
+  // Trigger a break by calling into foo().
   break_point_hit_count = 0;
-  max_break_point_hit_count = 10000;  // 10000 => infinite loop.
+  max_break_point_hit_count = 10000;
   foo->Call(context, env->Global(), 0, nullptr).ToLocalChecked();
 
   // When keeping the debug break several break will happen.
-  CHECK_GT(break_point_hit_count, 1);
+  CHECK_EQ(break_point_hit_count, max_break_point_hit_count);
 
   v8::debug::SetDebugDelegate(env->GetIsolate(), nullptr);
   CheckDebuggerUnloaded();
@@ -3697,7 +3736,7 @@ void DebugBreakLoop(const char* loop_header, const char** loop_bodies,
   LocalContext env;
   v8::HandleScope scope(env->GetIsolate());
 
-  // Register a debug event listener which sets the break flag and counts.
+  // Register a debug delegate which repeatedly sets the break flag and counts.
   DebugEventBreakMax delegate;
   v8::debug::SetDebugDelegate(env->GetIsolate(), &delegate);
 
@@ -3949,34 +3988,58 @@ class ArchiveRestoreThread : public v8::base::Thread,
         break_count_(0) {}
 
   void Run() override {
-    v8::Locker locker(isolate_);
-    isolate_->Enter();
+    {
+      v8::Locker locker(isolate_);
+      v8::Isolate::Scope i_scope(isolate_);
 
-    v8::HandleScope scope(isolate_);
-    v8::Local<v8::Context> context = v8::Context::New(isolate_);
-    v8::Context::Scope context_scope(context);
+      v8::HandleScope scope(isolate_);
+      v8::Local<v8::Context> context = v8::Context::New(isolate_);
+      v8::Context::Scope context_scope(context);
+      auto callback = [](const v8::FunctionCallbackInfo<v8::Value>& info) {
+        v8::Local<v8::Value> value = info.Data();
+        CHECK(value->IsExternal());
+        auto art = static_cast<ArchiveRestoreThread*>(
+            v8::Local<v8::External>::Cast(value)->Value());
+        art->MaybeSpawnChildThread();
+      };
+      v8::Local<v8::FunctionTemplate> fun = v8::FunctionTemplate::New(
+          isolate_, callback, v8::External::New(isolate_, this));
+      CHECK(context->Global()
+                ->Set(context, v8_str("maybeSpawnChildThread"),
+                      fun->GetFunction(context).ToLocalChecked())
+                .FromJust());
 
-    v8::Local<v8::Function> test = CompileFunction(isolate_,
-                                                   "function test(n) {\n"
-                                                   "  debugger;\n"
-                                                   "  return n + 1;\n"
-                                                   "}\n",
-                                                   "test");
+      v8::Local<v8::Function> test =
+          CompileFunction(isolate_,
+                          "function test(n) {\n"
+                          "  debugger;\n"
+                          "  nest();\n"
+                          "  middle();\n"
+                          "  return n + 1;\n"
+                          "  function middle() {\n"
+                          "     debugger;\n"
+                          "     nest();\n"
+                          "     Date.now();\n"
+                          "  }\n"
+                          "  function nest() {\n"
+                          "    maybeSpawnChildThread();\n"
+                          "  }\n"
+                          "}\n",
+                          "test");
 
-    debug_->SetDebugDelegate(this);
-    v8::internal::DisableBreak enable_break(debug_, false);
+      debug_->SetDebugDelegate(this);
+      v8::internal::DisableBreak enable_break(debug_, false);
 
-    v8::Local<v8::Value> args[1] = {v8::Integer::New(isolate_, spawn_count_)};
+      v8::Local<v8::Value> args[1] = {v8::Integer::New(isolate_, spawn_count_)};
 
-    int result = test->Call(context, context->Global(), 1, args)
-                     .ToLocalChecked()
-                     ->Int32Value(context)
-                     .FromJust();
+      int result = test->Call(context, context->Global(), 1, args)
+                       .ToLocalChecked()
+                       ->Int32Value(context)
+                       .FromJust();
 
-    // Verify that test(spawn_count_) returned spawn_count_ + 1.
-    CHECK_EQ(spawn_count_ + 1, result);
-
-    isolate_->Exit();
+      // Verify that test(spawn_count_) returned spawn_count_ + 1.
+      CHECK_EQ(spawn_count_ + 1, result);
+    }
   }
 
   void BreakProgramRequested(
@@ -3989,9 +4052,12 @@ class ArchiveRestoreThread : public v8::base::Thread,
       i::PrintF("ArchiveRestoreThread #%d hit breakpoint at line %d\n",
                 spawn_count_, location.GetLineNumber());
 
-      switch (location.GetLineNumber()) {
-        case 1:  // debugger;
-          CHECK_EQ(break_count_, 0);
+      const int expectedLineNumber[] = {1, 2, 3, 6, 4};
+      CHECK_EQ(expectedLineNumber[break_count_], location.GetLineNumber());
+      switch (break_count_) {
+        case 0:  // debugger;
+        case 1:  // nest();
+        case 2:  // middle();
 
           // Attempt to stop on the next line after the first debugger
           // statement. If debug->{Archive,Restore}Debug() improperly reset
@@ -4003,12 +4069,25 @@ class ArchiveRestoreThread : public v8::base::Thread,
           // that the parent thread correctly archived and restored the
           // state necessary to stop on the next line. If not, then control
           // will simply continue past the `return n + 1` statement.
+          //
+          // A real world multi-threading app would probably never unlock the
+          // Isolate at a break point as that adds a thread switch point while
+          // debugging where none existed in the application and a
+          // multi-threaded should be able to count on not thread switching
+          // over a certain range of instructions.
           MaybeSpawnChildThread();
 
           break;
 
-        case 2:  // return n + 1;
-          CHECK_EQ(break_count_, 1);
+        case 3:  // debugger; in middle();
+          // Attempt to stop on the next line after the first debugger
+          // statement. If debug->{Archive,Restore}Debug() improperly reset
+          // thread-local debug information, the debugger will fail to stop
+          // before the test function returns.
+          debug_->PrepareStep(StepOut);
+          break;
+
+        case 4:  // return n + 1;
           break;
 
         default:
@@ -4037,8 +4116,8 @@ class ArchiveRestoreThread : public v8::base::Thread,
 
       // This is the most important check in this test, since
       // child.GetBreakCount() will return 1 if the debugger fails to stop
-      // on the `return n + 1` line after the grandchild thread returns.
-      CHECK_EQ(child.GetBreakCount(), 2);
+      // on the `next()` line after the grandchild thread returns.
+      CHECK_EQ(child.GetBreakCount(), 5);
     }
   }
 
@@ -4052,18 +4131,14 @@ class ArchiveRestoreThread : public v8::base::Thread,
 };
 
 TEST(DebugArchiveRestore) {
-  v8::Isolate::CreateParams create_params;
-  create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
-  v8::Isolate* isolate = v8::Isolate::New(create_params);
+  v8::Isolate* isolate = CcTest::isolate();
 
-  ArchiveRestoreThread thread(isolate, 5);
+  ArchiveRestoreThread thread(isolate, 4);
   // Instead of calling thread.Start() and thread.Join() here, we call
   // thread.Run() directly, to make sure we exercise archive/restore
   // logic on the *current* thread as well as other threads.
   thread.Run();
-  CHECK_EQ(thread.GetBreakCount(), 2);
-
-  isolate->Dispose();
+  CHECK_EQ(thread.GetBreakCount(), 5);
 }
 
 class DebugEventExpectNoException : public v8::debug::DebugDelegate {
@@ -4226,6 +4301,7 @@ size_t NearHeapLimitCallback(void* data, size_t current_heap_limit,
 }
 
 UNINITIALIZED_TEST(DebugSetOutOfMemoryListener) {
+  i::FLAG_stress_concurrent_allocation = false;
   v8::Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = CcTest::array_buffer_allocator();
   create_params.constraints.set_max_old_generation_size_in_bytes(10 * i::MB);
@@ -4402,7 +4478,7 @@ TEST(BuiltinsExceptionPrediction) {
   bool fail = false;
   for (int i = 0; i < i::Builtins::builtin_count; i++) {
     i::Code builtin = builtins->builtin(i);
-    if (builtin.kind() != i::Code::BUILTIN) continue;
+    if (builtin.kind() != i::CodeKind::BUILTIN) continue;
     auto prediction = builtin.GetBuiltinCatchPrediction();
     USE(prediction);
   }
@@ -4494,11 +4570,10 @@ UNINITIALIZED_TEST(LoadedAtStartupScripts) {
     LocalContext context(isolate);
 
     std::vector<i::Handle<i::Script>> scripts;
-    CompileWithOrigin(v8_str("function foo(){}"), v8_str("normal.js"),
-                      v8_bool(false));
+    CompileWithOrigin(v8_str("function foo(){}"), v8_str("normal.js"), false);
     std::unordered_map<int, int> count_by_type;
     {
-      i::DisallowHeapAllocation no_gc;
+      i::DisallowGarbageCollection no_gc;
       i::Script::Iterator iterator(i_isolate);
       for (i::Script script = iterator.Next(); !script.is_null();
            script = iterator.Next()) {
@@ -4513,7 +4588,9 @@ UNINITIALIZED_TEST(LoadedAtStartupScripts) {
     CHECK_EQ(count_by_type[i::Script::TYPE_NATIVE], 0);
     CHECK_EQ(count_by_type[i::Script::TYPE_EXTENSION], 1);
     CHECK_EQ(count_by_type[i::Script::TYPE_NORMAL], 1);
+#if V8_ENABLE_WEBASSEMBLY
     CHECK_EQ(count_by_type[i::Script::TYPE_WASM], 0);
+#endif  // V8_ENABLE_WEBASSEMBLY
     CHECK_EQ(count_by_type[i::Script::TYPE_INSPECTOR], 0);
 
     i::Handle<i::Script> gc_script =
@@ -4826,7 +4903,6 @@ TEST(GetPrivateFields) {
 }
 
 TEST(GetPrivateMethodsAndAccessors) {
-  i::FLAG_harmony_private_methods = true;
   LocalContext env;
   v8::Isolate* v8_isolate = CcTest::isolate();
   v8::HandleScope scope(v8_isolate);
@@ -4963,7 +5039,6 @@ TEST(GetPrivateMethodsAndAccessors) {
 }
 
 TEST(GetPrivateStaticMethodsAndAccessors) {
-  i::FLAG_harmony_private_methods = true;
   LocalContext env;
   v8::Isolate* v8_isolate = CcTest::isolate();
   v8::HandleScope scope(v8_isolate);
@@ -5014,7 +5089,6 @@ TEST(GetPrivateStaticMethodsAndAccessors) {
 }
 
 TEST(GetPrivateStaticAndInstanceMethodsAndAccessors) {
-  i::FLAG_harmony_private_methods = true;
   LocalContext env;
   v8::Isolate* v8_isolate = CcTest::isolate();
   v8::HandleScope scope(v8_isolate);
@@ -5469,39 +5543,44 @@ TEST(TerminateOnResumeFromMicrotask) {
 
 class FutexInterruptionThread : public v8::base::Thread {
  public:
-  FutexInterruptionThread(v8::Isolate* isolate, v8::base::Semaphore* sem)
+  FutexInterruptionThread(v8::Isolate* isolate, v8::base::Semaphore* enter,
+                          v8::base::Semaphore* exit)
       : Thread(Options("FutexInterruptionThread")),
         isolate_(isolate),
-        sem_(sem) {}
+        enter_(enter),
+        exit_(exit) {}
 
   void Run() override {
-    // Wait a bit before terminating.
-    v8::base::OS::Sleep(v8::base::TimeDelta::FromMilliseconds(100));
-    sem_->Wait();
+    enter_->Wait();
     v8::debug::SetTerminateOnResume(isolate_);
+    exit_->Signal();
   }
 
  private:
   v8::Isolate* isolate_;
-  v8::base::Semaphore* sem_;
+  v8::base::Semaphore* enter_;
+  v8::base::Semaphore* exit_;
 };
 
 namespace {
 class SemaphoreTriggerOnBreak : public v8::debug::DebugDelegate {
  public:
-  SemaphoreTriggerOnBreak() : sem_(0) {}
+  SemaphoreTriggerOnBreak() : enter_(0), exit_(0) {}
   void BreakProgramRequested(v8::Local<v8::Context> paused_context,
                              const std::vector<v8::debug::BreakpointId>&
                                  inspector_break_points_hit) override {
     break_count_++;
-    sem_.Signal();
+    enter_.Signal();
+    exit_.Wait();
   }
 
-  v8::base::Semaphore* semaphore() { return &sem_; }
+  v8::base::Semaphore* enter() { return &enter_; }
+  v8::base::Semaphore* exit() { return &exit_; }
   int break_count() const { return break_count_; }
 
  private:
-  v8::base::Semaphore sem_;
+  v8::base::Semaphore enter_;
+  v8::base::Semaphore exit_;
   int break_count_ = 0;
 };
 }  // anonymous namespace
@@ -5514,8 +5593,8 @@ TEST(TerminateOnResumeFromOtherThread) {
   SemaphoreTriggerOnBreak delegate;
   v8::debug::SetDebugDelegate(env->GetIsolate(), &delegate);
 
-  FutexInterruptionThread timeout_thread(env->GetIsolate(),
-                                         delegate.semaphore());
+  FutexInterruptionThread timeout_thread(env->GetIsolate(), delegate.enter(),
+                                         delegate.exit());
   CHECK(timeout_thread.Start());
 
   v8::Local<v8::Context> context = env.local();
@@ -5546,7 +5625,7 @@ namespace {
 class InterruptionBreakRightNow : public v8::base::Thread {
  public:
   explicit InterruptionBreakRightNow(v8::Isolate* isolate)
-      : Thread(Options("FutexInterruptionThread")), isolate_(isolate) {}
+      : Thread(Options("InterruptionBreakRightNow")), isolate_(isolate) {}
 
   void Run() override {
     // Wait a bit before terminating.

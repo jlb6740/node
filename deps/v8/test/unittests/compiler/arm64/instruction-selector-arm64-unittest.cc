@@ -2,6 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#include "src/common/globals.h"
 #include "src/objects/objects-inl.h"
 #include "test/unittests/compiler/backend/instruction-selector-unittest.h"
 
@@ -2043,9 +2044,9 @@ struct MulDPInst {
   Node* (RawMachineAssembler::*mul_constructor)(Node*, Node*);
   Node* (RawMachineAssembler::*add_constructor)(Node*, Node*);
   Node* (RawMachineAssembler::*sub_constructor)(Node*, Node*);
-  ArchOpcode add_arch_opcode;
-  ArchOpcode sub_arch_opcode;
-  ArchOpcode neg_arch_opcode;
+  ArchOpcode multiply_add_arch_opcode;
+  ArchOpcode multiply_sub_arch_opcode;
+  ArchOpcode multiply_neg_arch_opcode;
   MachineType machine_type;
 };
 
@@ -2077,7 +2078,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, AddWithMul) {
     m.Return((m.*mdpi.add_constructor)(m.Parameter(0), n));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
-    EXPECT_EQ(mdpi.add_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(mdpi.multiply_add_arch_opcode, s[0]->arch_opcode());
     EXPECT_EQ(3U, s[0]->InputCount());
     EXPECT_EQ(1U, s[0]->OutputCount());
   }
@@ -2087,7 +2088,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, AddWithMul) {
     m.Return((m.*mdpi.add_constructor)(n, m.Parameter(2)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
-    EXPECT_EQ(mdpi.add_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(mdpi.multiply_add_arch_opcode, s[0]->arch_opcode());
     EXPECT_EQ(3U, s[0]->InputCount());
     EXPECT_EQ(1U, s[0]->OutputCount());
   }
@@ -2103,7 +2104,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, SubWithMul) {
     m.Return((m.*mdpi.sub_constructor)(m.Parameter(0), n));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
-    EXPECT_EQ(mdpi.sub_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(mdpi.multiply_sub_arch_opcode, s[0]->arch_opcode());
     EXPECT_EQ(3U, s[0]->InputCount());
     EXPECT_EQ(1U, s[0]->OutputCount());
   }
@@ -2120,7 +2121,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, NegativeMul) {
     m.Return((m.*mdpi.mul_constructor)(n, m.Parameter(1)));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
-    EXPECT_EQ(mdpi.neg_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(mdpi.multiply_neg_arch_opcode, s[0]->arch_opcode());
     EXPECT_EQ(2U, s[0]->InputCount());
     EXPECT_EQ(1U, s[0]->OutputCount());
   }
@@ -2131,7 +2132,7 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, NegativeMul) {
     m.Return((m.*mdpi.mul_constructor)(m.Parameter(0), n));
     Stream s = m.Build();
     ASSERT_EQ(1U, s.size());
-    EXPECT_EQ(mdpi.neg_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(mdpi.multiply_neg_arch_opcode, s[0]->arch_opcode());
     EXPECT_EQ(2U, s[0]->InputCount());
     EXPECT_EQ(1U, s[0]->OutputCount());
   }
@@ -2140,6 +2141,280 @@ TEST_P(InstructionSelectorIntDPWithIntMulTest, NegativeMul) {
 INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
                          InstructionSelectorIntDPWithIntMulTest,
                          ::testing::ValuesIn(kMulDPInstructions));
+
+namespace {
+
+struct SIMDMulDPInst {
+  const char* mul_constructor_name;
+  const Operator* (MachineOperatorBuilder::*mul_operator)(void);
+  const Operator* (MachineOperatorBuilder::*add_operator)(void);
+  const Operator* (MachineOperatorBuilder::*sub_operator)(void);
+  ArchOpcode multiply_add_arch_opcode;
+  ArchOpcode multiply_sub_arch_opcode;
+  MachineType machine_type;
+};
+
+std::ostream& operator<<(std::ostream& os, const SIMDMulDPInst& inst) {
+  return os << inst.mul_constructor_name;
+}
+
+}  // namespace
+
+static const SIMDMulDPInst kSIMDMulDPInstructions[] = {
+    {"I32x4Mul", &MachineOperatorBuilder::I32x4Mul,
+     &MachineOperatorBuilder::I32x4Add, &MachineOperatorBuilder::I32x4Sub,
+     kArm64I32x4Mla, kArm64I32x4Mls, MachineType::Simd128()},
+    {"I16x8Mul", &MachineOperatorBuilder::I16x8Mul,
+     &MachineOperatorBuilder::I16x8Add, &MachineOperatorBuilder::I16x8Sub,
+     kArm64I16x8Mla, kArm64I16x8Mls, MachineType::Simd128()}};
+
+using InstructionSelectorSIMDDPWithSIMDMulTest =
+    InstructionSelectorTestWithParam<SIMDMulDPInst>;
+
+TEST_P(InstructionSelectorSIMDDPWithSIMDMulTest, AddWithMul) {
+  const SIMDMulDPInst mdpi = GetParam();
+  const MachineType type = mdpi.machine_type;
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* n = m.AddNode((m.machine()->*mdpi.mul_operator)(), m.Parameter(1),
+                        m.Parameter(2));
+    m.Return(m.AddNode((m.machine()->*mdpi.add_operator)(), m.Parameter(0), n));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(mdpi.multiply_add_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(1U, s[0]->OutputCount());
+  }
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* n = m.AddNode((m.machine()->*mdpi.mul_operator)(), m.Parameter(0),
+                        m.Parameter(1));
+    m.Return(m.AddNode((m.machine()->*mdpi.add_operator)(), n, m.Parameter(2)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(mdpi.multiply_add_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(1U, s[0]->OutputCount());
+  }
+}
+
+TEST_P(InstructionSelectorSIMDDPWithSIMDMulTest, SubWithMul) {
+  const SIMDMulDPInst mdpi = GetParam();
+  const MachineType type = mdpi.machine_type;
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* n = m.AddNode((m.machine()->*mdpi.mul_operator)(), m.Parameter(1),
+                        m.Parameter(2));
+    m.Return(m.AddNode((m.machine()->*mdpi.sub_operator)(), m.Parameter(0), n));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(mdpi.multiply_sub_arch_opcode, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(1U, s[0]->OutputCount());
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorSIMDDPWithSIMDMulTest,
+                         ::testing::ValuesIn(kSIMDMulDPInstructions));
+
+struct SIMDMulDupInst {
+  const uint8_t shuffle[16];
+  int32_t lane;
+  int shuffle_input_index;
+};
+
+const SIMDMulDupInst kSIMDF32x4MulDuplInstructions[] = {
+    {
+        {0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3},
+        0,
+        0,
+    },
+    {
+        {4, 5, 6, 7, 4, 5, 6, 7, 4, 5, 6, 7, 4, 5, 6, 7},
+        1,
+        0,
+    },
+    {
+        {8, 9, 10, 11, 8, 9, 10, 11, 8, 9, 10, 11, 8, 9, 10, 11},
+        2,
+        0,
+    },
+    {
+        {12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15, 12, 13, 14, 15},
+        3,
+        0,
+    },
+    {
+        {16, 17, 18, 19, 16, 17, 18, 19, 16, 17, 18, 19, 16, 17, 18, 19},
+        0,
+        1,
+    },
+    {
+        {20, 21, 22, 23, 20, 21, 22, 23, 20, 21, 22, 23, 20, 21, 22, 23},
+        1,
+        1,
+    },
+    {
+        {24, 25, 26, 27, 24, 25, 26, 27, 24, 25, 26, 27, 24, 25, 26, 27},
+        2,
+        1,
+    },
+    {
+        {28, 29, 30, 31, 28, 29, 30, 31, 28, 29, 30, 31, 28, 29, 30, 31},
+        3,
+        1,
+    },
+};
+
+using InstructionSelectorSimdF32x4MulWithDupTest =
+    InstructionSelectorTestWithParam<SIMDMulDupInst>;
+
+TEST_P(InstructionSelectorSimdF32x4MulWithDupTest, MulWithDup) {
+  const SIMDMulDupInst param = GetParam();
+  const MachineType type = MachineType::Simd128();
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode(m.machine()->I8x16Shuffle(param.shuffle, true),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F32x4Mul(), m.Parameter(2), shuffle));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64F32x4MulElement, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(param.lane, s.ToInt32(s[0]->InputAt(2)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(m.Parameter(param.shuffle_input_index)),
+              s.ToVreg(s[0]->InputAt(1)));
+  }
+
+  // Multiplication operator should be commutative, so test shuffle op as lhs.
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode(m.machine()->I8x16Shuffle(param.shuffle, true),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F32x4Mul(), shuffle, m.Parameter(2)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64F32x4MulElement, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(param.lane, s.ToInt32(s[0]->InputAt(2)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(m.Parameter(param.shuffle_input_index)),
+              s.ToVreg(s[0]->InputAt(1)));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorSimdF32x4MulWithDupTest,
+                         ::testing::ValuesIn(kSIMDF32x4MulDuplInstructions));
+
+TEST_F(InstructionSelectorTest, SimdF32x4MulWithDupNegativeTest) {
+  const MachineType type = MachineType::Simd128();
+  // Check that optimization does not match when the shuffle is not a f32x4.dup.
+  const uint8_t mask[kSimd128Size] = {0};
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode((m.machine()->I8x16Shuffle(mask, true)),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F32x4Mul(), m.Parameter(2), shuffle));
+    Stream s = m.Build();
+    ASSERT_EQ(2U, s.size());
+    // The shuffle is a i8x16.dup of lane 0.
+    EXPECT_EQ(kArm64S128Dup, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(kArm64F32x4Mul, s[1]->arch_opcode());
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(2U, s[1]->InputCount());
+    EXPECT_EQ(1U, s[1]->OutputCount());
+  }
+}
+
+const SIMDMulDupInst kSIMDF64x2MulDuplInstructions[] = {
+    {
+        {0, 1, 2, 3, 4, 5, 6, 7, 0, 1, 2, 3, 4, 5, 6, 7},
+        0,
+        0,
+    },
+    {
+        {8, 9, 10, 11, 12, 13, 14, 15, 8, 9, 10, 11, 12, 13, 14, 15},
+        1,
+        0,
+    },
+    {
+        {16, 17, 18, 19, 20, 21, 22, 23, 16, 17, 18, 19, 20, 21, 22, 23},
+        0,
+        1,
+    },
+    {
+        {24, 25, 26, 27, 28, 29, 30, 31, 24, 25, 26, 27, 28, 29, 30, 31},
+        1,
+        1,
+    },
+};
+
+using InstructionSelectorSimdF64x2MulWithDupTest =
+    InstructionSelectorTestWithParam<SIMDMulDupInst>;
+
+TEST_P(InstructionSelectorSimdF64x2MulWithDupTest, MulWithDup) {
+  const SIMDMulDupInst param = GetParam();
+  const MachineType type = MachineType::Simd128();
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode(m.machine()->I8x16Shuffle(param.shuffle, true),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F64x2Mul(), m.Parameter(2), shuffle));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64F64x2MulElement, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(param.lane, s.ToInt32(s[0]->InputAt(2)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(m.Parameter(param.shuffle_input_index)),
+              s.ToVreg(s[0]->InputAt(1)));
+  }
+
+  // Multiplication operator should be commutative, so test shuffle op as lhs.
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode(m.machine()->I8x16Shuffle(param.shuffle, true),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F64x2Mul(), shuffle, m.Parameter(2)));
+    Stream s = m.Build();
+    ASSERT_EQ(1U, s.size());
+    EXPECT_EQ(kArm64F64x2MulElement, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(param.lane, s.ToInt32(s[0]->InputAt(2)));
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(s.ToVreg(m.Parameter(param.shuffle_input_index)),
+              s.ToVreg(s[0]->InputAt(1)));
+  }
+}
+
+INSTANTIATE_TEST_SUITE_P(InstructionSelectorTest,
+                         InstructionSelectorSimdF64x2MulWithDupTest,
+                         ::testing::ValuesIn(kSIMDF64x2MulDuplInstructions));
+
+TEST_F(InstructionSelectorTest, SimdF64x2MulWithDupNegativeTest) {
+  const MachineType type = MachineType::Simd128();
+  // Check that optimization does not match when the shuffle is not a f64x2.dup.
+  const uint8_t mask[kSimd128Size] = {0};
+  {
+    StreamBuilder m(this, type, type, type, type);
+    Node* shuffle = m.AddNode((m.machine()->I8x16Shuffle(mask, true)),
+                              m.Parameter(0), m.Parameter(1));
+    m.Return(m.AddNode(m.machine()->F64x2Mul(), m.Parameter(2), shuffle));
+    Stream s = m.Build();
+    ASSERT_EQ(2U, s.size());
+    // The shuffle is a i8x16.dup of lane 0.
+    EXPECT_EQ(kArm64S128Dup, s[0]->arch_opcode());
+    EXPECT_EQ(3U, s[0]->InputCount());
+    EXPECT_EQ(kArm64F64x2Mul, s[1]->arch_opcode());
+    EXPECT_EQ(1U, s[0]->OutputCount());
+    EXPECT_EQ(2U, s[1]->InputCount());
+    EXPECT_EQ(1U, s[1]->OutputCount());
+  }
+}
 
 TEST_F(InstructionSelectorTest, Int32MulWithImmediate) {
   // x * (2^k + 1) -> x + (x << k)

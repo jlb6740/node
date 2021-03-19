@@ -9,6 +9,7 @@
 
 #include "include/v8-internal.h"
 #include "include/v8.h"
+#include "src/base/optional.h"
 #include "src/handles/handles.h"
 
 namespace v8 {
@@ -47,11 +48,13 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
                                                 SharedFlag shared,
                                                 InitializedFlag initialized);
 
+#if V8_ENABLE_WEBASSEMBLY
   // Allocate the backing store for a Wasm memory.
   static std::unique_ptr<BackingStore> AllocateWasmMemory(Isolate* isolate,
                                                           size_t initial_pages,
                                                           size_t maximum_pages,
                                                           SharedFlag shared);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   // Create a backing store that wraps existing allocated memory.
   // If {free_on_destruct} is {true}, the memory will be freed using the
@@ -83,12 +86,14 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
   bool has_guard_regions() const { return has_guard_regions_; }
   bool free_on_destruct() const { return free_on_destruct_; }
 
-  // Attempt to grow this backing store in place.
-  bool GrowWasmMemoryInPlace(Isolate* isolate, size_t delta_pages,
-                             size_t max_pages);
-
   // Wrapper around ArrayBuffer::Allocator::Reallocate.
   bool Reallocate(Isolate* isolate, size_t new_byte_length);
+
+#if V8_ENABLE_WEBASSEMBLY
+  // Attempt to grow this backing store in place.
+  base::Optional<size_t> GrowWasmMemoryInPlace(Isolate* isolate,
+                                               size_t delta_pages,
+                                               size_t max_pages);
 
   // Allocate a new, larger, backing store for this Wasm memory and copy the
   // contents of this backing store into it.
@@ -104,8 +109,7 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
   // after the backing store has been grown. Memory objects in this
   // isolate are updated synchronously.
   static void BroadcastSharedWasmMemoryGrow(Isolate* isolate,
-                                            std::shared_ptr<BackingStore>,
-                                            size_t new_pages);
+                                            std::shared_ptr<BackingStore>);
 
   // TODO(wasm): address space limitations should be enforced in page alloc.
   // These methods enforce a limit on the total amount of address space,
@@ -119,6 +123,7 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
 
   // Update all shared memory objects in this isolate (after a grow operation).
   static void UpdateSharedWasmMemoryObjects(Isolate* isolate);
+#endif  // V8_ENABLE_WEBASSEMBLY
 
   // Returns the size of the external memory owned by this backing store.
   // It is used for triggering GCs based on the external memory pressure.
@@ -156,6 +161,8 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
         globally_registered_(false),
         custom_deleter_(custom_deleter),
         empty_deleter_(empty_deleter) {}
+  BackingStore(const BackingStore&) = delete;
+  BackingStore& operator=(const BackingStore&) = delete;
   void SetAllocatorFromIsolate(Isolate* isolate);
 
   void* buffer_start_ = nullptr;
@@ -205,27 +212,22 @@ class V8_EXPORT_PRIVATE BackingStore : public BackingStoreBase {
   SharedWasmMemoryData* get_shared_wasm_memory_data();
 
   void Clear();  // Internally clears fields after deallocation.
+#if V8_ENABLE_WEBASSEMBLY
   static std::unique_ptr<BackingStore> TryAllocateWasmMemory(
       Isolate* isolate, size_t initial_pages, size_t maximum_pages,
       SharedFlag shared);
-
-  DISALLOW_COPY_AND_ASSIGN(BackingStore);
+#endif  // V8_ENABLE_WEBASSEMBLY
 };
 
-// A global, per-process mapping from buffer addresses to backing stores.
-// This is generally only used for dealing with an embedder that has not
-// migrated to the new API which should use proper pointers to manage
-// backing stores.
+// A global, per-process mapping from buffer addresses to backing stores
+// of wasm memory objects.
 class GlobalBackingStoreRegistry {
  public:
   // Register a backing store in the global registry. A mapping from the
   // {buffer_start} to the backing store object will be added. The backing
   // store will automatically unregister itself upon destruction.
+  // Only wasm memory backing stores are supported.
   static void Register(std::shared_ptr<BackingStore> backing_store);
-
-  // Look up a backing store based on the {buffer_start} pointer.
-  static std::shared_ptr<BackingStore> Lookup(void* buffer_start,
-                                              size_t length);
 
  private:
   friend class BackingStore;
@@ -243,8 +245,7 @@ class GlobalBackingStoreRegistry {
 
   // Broadcast updates to all attached memory objects.
   static void BroadcastSharedWasmMemoryGrow(
-      Isolate* isolate, std::shared_ptr<BackingStore> backing_store,
-      size_t new_pages);
+      Isolate* isolate, std::shared_ptr<BackingStore> backing_store);
 
   // Update all shared memory objects in the given isolate.
   static void UpdateSharedWasmMemoryObjects(Isolate* isolate);

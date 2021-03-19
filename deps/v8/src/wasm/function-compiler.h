@@ -2,6 +2,10 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
+#if !V8_ENABLE_WEBASSEMBLY
+#error This header should only be included if WebAssembly is enabled.
+#endif  // !V8_ENABLE_WEBASSEMBLY
+
 #ifndef V8_WASM_FUNCTION_COMPILER_H_
 #define V8_WASM_FUNCTION_COMPILER_H_
 
@@ -31,6 +35,9 @@ struct WasmFunction;
 
 class WasmInstructionBuffer final {
  public:
+  WasmInstructionBuffer() = delete;
+  WasmInstructionBuffer(const WasmInstructionBuffer&) = delete;
+  WasmInstructionBuffer& operator=(const WasmInstructionBuffer&) = delete;
   ~WasmInstructionBuffer();
   std::unique_ptr<AssemblerBuffer> CreateView();
   std::unique_ptr<uint8_t[]> ReleaseBuffer();
@@ -42,10 +49,6 @@ class WasmInstructionBuffer final {
   // Override {operator delete} to avoid implicit instantiation of {operator
   // delete} with {size_t} argument. The {size_t} argument would be incorrect.
   void operator delete(void* ptr) { ::operator delete(ptr); }
-
- private:
-  WasmInstructionBuffer() = delete;
-  DISALLOW_COPY_AND_ASSIGN(WasmInstructionBuffer);
 };
 
 struct WasmCompilationResult {
@@ -55,7 +58,6 @@ struct WasmCompilationResult {
   enum Kind : int8_t {
     kFunction,
     kWasmToJsWrapper,
-    kInterpreterEntry,
   };
 
   bool succeeded() const { return code_desc.buffer != nullptr; }
@@ -72,14 +74,15 @@ struct WasmCompilationResult {
   ExecutionTier requested_tier;
   ExecutionTier result_tier;
   Kind kind = kFunction;
+  ForDebugging for_debugging = kNoDebugging;
 };
 
 class V8_EXPORT_PRIVATE WasmCompilationUnit final {
  public:
   static ExecutionTier GetBaselineExecutionTier(const WasmModule*);
 
-  WasmCompilationUnit(int index, ExecutionTier tier)
-      : func_index_(index), tier_(tier) {}
+  WasmCompilationUnit(int index, ExecutionTier tier, ForDebugging for_debugging)
+      : func_index_(index), tier_(tier), for_debugging_(for_debugging) {}
 
   WasmCompilationResult ExecuteCompilation(
       WasmEngine*, CompilationEnv*, const std::shared_ptr<WireBytesStorage>&,
@@ -103,6 +106,7 @@ class V8_EXPORT_PRIVATE WasmCompilationUnit final {
 
   int func_index_;
   ExecutionTier tier_;
+  ForDebugging for_debugging_;
 };
 
 // {WasmCompilationUnit} should be trivially copyable and small enough so we can
@@ -112,9 +116,15 @@ STATIC_ASSERT(sizeof(WasmCompilationUnit) <= 2 * kSystemPointerSize);
 
 class V8_EXPORT_PRIVATE JSToWasmWrapperCompilationUnit final {
  public:
+  // A flag to mark whether the compilation unit can skip the compilation
+  // and return the builtin (generic) wrapper, when available.
+  enum AllowGeneric : bool { kAllowGeneric = true, kDontAllowGeneric = false };
+
   JSToWasmWrapperCompilationUnit(Isolate* isolate, WasmEngine* wasm_engine,
-                                 const FunctionSig* sig, bool is_import,
-                                 const WasmFeatures& enabled_features);
+                                 const FunctionSig* sig,
+                                 const wasm::WasmModule* module, bool is_import,
+                                 const WasmFeatures& enabled_features,
+                                 AllowGeneric allow_generic);
   ~JSToWasmWrapperCompilationUnit();
 
   void Execute();
@@ -126,11 +136,19 @@ class V8_EXPORT_PRIVATE JSToWasmWrapperCompilationUnit final {
   // Run a compilation unit synchronously.
   static Handle<Code> CompileJSToWasmWrapper(Isolate* isolate,
                                              const FunctionSig* sig,
+                                             const WasmModule* module,
                                              bool is_import);
+
+  // Run a compilation unit synchronously, but ask for the specific
+  // wrapper.
+  static Handle<Code> CompileSpecificJSToWasmWrapper(Isolate* isolate,
+                                                     const FunctionSig* sig,
+                                                     const WasmModule* module);
 
  private:
   bool is_import_;
   const FunctionSig* sig_;
+  bool use_generic_wrapper_;
   std::unique_ptr<OptimizedCompilationJob> job_;
 };
 

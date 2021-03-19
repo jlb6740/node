@@ -30,11 +30,21 @@ namespace internal {
 
 // x18 is the platform register and is reserved for the use of platform ABIs.
 // It is known to be reserved by the OS at least on Windows and iOS.
-#define ALLOCATABLE_GENERAL_REGISTERS(R)                  \
+#define ALWAYS_ALLOCATABLE_GENERAL_REGISTERS(R)                  \
   R(x0)  R(x1)  R(x2)  R(x3)  R(x4)  R(x5)  R(x6)  R(x7)  \
   R(x8)  R(x9)  R(x10) R(x11) R(x12) R(x13) R(x14) R(x15) \
          R(x19) R(x20) R(x21) R(x22) R(x23) R(x24) R(x25) \
-  R(x27) R(x28)
+  R(x27)
+
+#ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
+#define MAYBE_ALLOCATABLE_GENERAL_REGISTERS(R)
+#else
+#define MAYBE_ALLOCATABLE_GENERAL_REGISTERS(R) R(x28)
+#endif
+
+#define ALLOCATABLE_GENERAL_REGISTERS(V)  \
+  ALWAYS_ALLOCATABLE_GENERAL_REGISTERS(V) \
+  MAYBE_ALLOCATABLE_GENERAL_REGISTERS(V)
 
 #define FLOAT_REGISTERS(V)                                \
   V(s0)  V(s1)  V(s2)  V(s3)  V(s4)  V(s5)  V(s6)  V(s7)  \
@@ -92,9 +102,7 @@ class CPURegister : public RegisterBase<CPURegister, kRegAfterLast> {
   }
 
   static constexpr CPURegister Create(int code, int size, RegisterType type) {
-#if V8_HAS_CXX14_CONSTEXPR
-    DCHECK(IsValid(code, size, type));
-#endif
+    CONSTEXPR_DCHECK(IsValid(code, size, type));
     return CPURegister{code, size, type};
   }
 
@@ -243,7 +251,14 @@ class Register : public CPURegister {
 
 ASSERT_TRIVIALLY_COPYABLE(Register);
 
-constexpr bool kPadArguments = true;
+// Stack frame alignment and padding.
+constexpr int ArgumentPaddingSlots(int argument_count) {
+  // Stack frames are aligned to 16 bytes.
+  constexpr int kStackFrameAlignment = 16;
+  constexpr int alignment_mask = kStackFrameAlignment / kSystemPointerSize - 1;
+  return argument_count & alignment_mask;
+}
+
 constexpr bool kSimpleFPAliasing = true;
 constexpr bool kSimdMaskRegisters = false;
 
@@ -283,6 +298,7 @@ VectorFormat VectorFormatDoubleLanes(VectorFormat vform);
 VectorFormat VectorFormatHalfLanes(VectorFormat vform);
 VectorFormat ScalarFormatFromLaneSize(int lanesize);
 VectorFormat VectorFormatHalfWidthDoubleLanes(VectorFormat vform);
+VectorFormat VectorFormatFillQ(int laneSize);
 VectorFormat VectorFormatFillQ(VectorFormat vform);
 VectorFormat ScalarFormatFromFormat(VectorFormat vform);
 V8_EXPORT_PRIVATE unsigned RegisterSizeInBitsFromFormat(VectorFormat vform);
@@ -304,9 +320,7 @@ class VRegister : public CPURegister {
   }
 
   static constexpr VRegister Create(int code, int size, int lane_count = 1) {
-#if V8_HAS_CXX14_CONSTEXPR
-    DCHECK(IsValidLaneCount(lane_count));
-#endif
+    CONSTEXPR_DCHECK(IsValidLaneCount(lane_count));
     return VRegister(CPURegister::Create(code, size, CPURegister::kVRegister),
                      lane_count);
   }
@@ -347,6 +361,10 @@ class VRegister : public CPURegister {
   }
   VRegister V1D() const {
     return VRegister::Create(code(), kDRegSizeInBits, 1);
+  }
+
+  VRegister Format(VectorFormat f) const {
+    return VRegister::Create(code(), f);
   }
 
   bool Is8B() const { return (Is64Bits() && (lane_count_ == 8)); }
@@ -457,6 +475,12 @@ ALIAS_REGISTER(Register, wip1, w17);
 // Root register.
 ALIAS_REGISTER(Register, kRootRegister, x26);
 ALIAS_REGISTER(Register, rr, x26);
+// Pointer cage base register.
+#ifdef V8_COMPRESS_POINTERS_IN_SHARED_CAGE
+ALIAS_REGISTER(Register, kPointerCageBaseRegister, x28);
+#else
+ALIAS_REGISTER(Register, kPointerCageBaseRegister, kRootRegister);
+#endif
 // Context pointer register.
 ALIAS_REGISTER(Register, cp, x27);
 ALIAS_REGISTER(Register, fp, x29);
@@ -470,8 +494,9 @@ ALIAS_REGISTER(Register, padreg, x31);
 // Keeps the 0 double value.
 ALIAS_REGISTER(VRegister, fp_zero, d15);
 // MacroAssembler fixed V Registers.
-ALIAS_REGISTER(VRegister, fp_fixed1, d28);
-ALIAS_REGISTER(VRegister, fp_fixed2, d29);
+// d29 is not part of ALLOCATABLE_DOUBLE_REGISTERS, so use 27 and 28.
+ALIAS_REGISTER(VRegister, fp_fixed1, d27);
+ALIAS_REGISTER(VRegister, fp_fixed2, d28);
 
 // MacroAssembler scratch V registers.
 ALIAS_REGISTER(VRegister, fp_scratch, d30);
@@ -522,8 +547,6 @@ using Simd128Register = VRegister;
 // Lists of registers.
 class V8_EXPORT_PRIVATE CPURegList {
  public:
-  CPURegList() = default;
-
   template <typename... CPURegisters>
   explicit CPURegList(CPURegister reg0, CPURegisters... regs)
       : list_(CPURegister::ListOf(reg0, regs...)),
@@ -695,6 +718,8 @@ constexpr Register kRuntimeCallArgCountRegister = x0;
 constexpr Register kRuntimeCallArgvRegister = x11;
 constexpr Register kWasmInstanceRegister = x7;
 constexpr Register kWasmCompileLazyFuncIndexRegister = x8;
+
+constexpr DoubleRegister kFPReturnRegister0 = d0;
 
 }  // namespace internal
 }  // namespace v8
