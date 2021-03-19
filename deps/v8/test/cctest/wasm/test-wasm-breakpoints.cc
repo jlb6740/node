@@ -179,16 +179,16 @@ struct WasmValWrapper {
 #ifdef DEBUG
 std::ostream& operator<<(std::ostream& out, const WasmValWrapper& wrapper) {
   switch (wrapper.val.type().kind()) {
-    case kI32:
+    case ValueType::kI32:
       out << "i32: " << wrapper.val.to<int32_t>();
       break;
-    case kI64:
+    case ValueType::kI64:
       out << "i64: " << wrapper.val.to<int64_t>();
       break;
-    case kF32:
+    case ValueType::kF32:
       out << "f32: " << wrapper.val.to<float>();
       break;
-    case kF64:
+    case ValueType::kF64:
       out << "f64: " << wrapper.val.to<double>();
       break;
     default:
@@ -237,7 +237,7 @@ class CollectValuesBreakHandler : public debug::DebugDelegate {
     CHECK_EQ(expected.locals.size(), num_locals);
     for (int i = 0; i < num_locals; ++i) {
       WasmValue local_value = debug_info->GetLocalValue(
-          i, frame->pc(), frame->fp(), frame->callee_fp(), isolate_);
+          i, frame->pc(), frame->fp(), frame->callee_fp());
       CHECK_EQ(WasmValWrapper{expected.locals[i]}, WasmValWrapper{local_value});
     }
 
@@ -245,7 +245,7 @@ class CollectValuesBreakHandler : public debug::DebugDelegate {
     CHECK_EQ(expected.stack.size(), stack_depth);
     for (int i = 0; i < stack_depth; ++i) {
       WasmValue stack_value = debug_info->GetStackValue(
-          i, frame->pc(), frame->fp(), frame->callee_fp(), isolate_);
+          i, frame->pc(), frame->fp(), frame->callee_fp());
       CHECK_EQ(WasmValWrapper{expected.stack[i]}, WasmValWrapper{stack_value});
     }
 

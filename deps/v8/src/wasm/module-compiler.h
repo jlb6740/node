@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if !V8_ENABLE_WEBASSEMBLY
-#error This header should only be included if WebAssembly is enabled.
-#endif  // !V8_ENABLE_WEBASSEMBLY
-
 #ifndef V8_WASM_MODULE_COMPILER_H_
 #define V8_WASM_MODULE_COMPILER_H_
 
@@ -47,7 +43,7 @@ struct WasmModule;
 std::shared_ptr<NativeModule> CompileToNativeModule(
     Isolate* isolate, const WasmFeatures& enabled, ErrorThrower* thrower,
     std::shared_ptr<const WasmModule> module, const ModuleWireBytes& wire_bytes,
-    Handle<FixedArray>* export_wrappers_out, int compilation_id);
+    Handle<FixedArray>* export_wrappers_out);
 
 void RecompileNativeModule(NativeModule* native_module,
                            TieringState new_tiering_state);
@@ -117,8 +113,7 @@ class AsyncCompileJob {
                   std::unique_ptr<byte[]> bytes_copy, size_t length,
                   Handle<Context> context, Handle<Context> incumbent_context,
                   const char* api_method_name,
-                  std::shared_ptr<CompilationResultResolver> resolver,
-                  int compilation_id);
+                  std::shared_ptr<CompilationResultResolver> resolver);
   ~AsyncCompileJob();
 
   void Start();
@@ -241,9 +236,6 @@ class AsyncCompileJob {
   // compilation. The AsyncCompileJob does not actively use the
   // StreamingDecoder.
   std::shared_ptr<StreamingDecoder> stream_;
-
-  // The compilation id to identify trace events linked to this compilation.
-  const int compilation_id_;
 };
 
 }  // namespace wasm

@@ -5,7 +5,6 @@
 #ifndef V8_UNITTESTS_HEAP_CPPGC_TESTS_H_
 #define V8_UNITTESTS_HEAP_CPPGC_TESTS_H_
 
-#include "include/cppgc/heap-consistency.h"
 #include "include/cppgc/heap.h"
 #include "include/cppgc/platform.h"
 #include "src/heap/cppgc/heap.h"
@@ -86,10 +85,6 @@ class TestWithHeap : public TestWithPlatform {
     return Heap::From(GetHeap())->marker_;
   }
 
-  const std::unique_ptr<MarkerBase>& GetMarkerRef() const {
-    return Heap::From(GetHeap())->marker_;
-  }
-
   void ResetLinearAllocationBuffers();
 
  private:
@@ -100,13 +95,13 @@ class TestWithHeap : public TestWithPlatform {
 // Restrictive test fixture that supports allocation but will make sure no
 // garbage collection is triggered. This is useful for writing idiomatic
 // tests where object are allocated on the managed heap while still avoiding
-// far reaching test consequences of full garbage collection calls.
+// far reaching test consquences of full garbage collection calls.
 class TestSupportingAllocationOnly : public TestWithHeap {
  protected:
   TestSupportingAllocationOnly();
 
  private:
-  subtle::NoGarbageCollectionScope no_gc_scope_;
+  Heap::NoGCScope no_gc_scope_;
 };
 
 }  // namespace testing

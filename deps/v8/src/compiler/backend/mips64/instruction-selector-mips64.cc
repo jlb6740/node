@@ -397,11 +397,36 @@ InstructionOperand EmitAddBeforeS128LoadStore(InstructionSelector* selector,
   return addr_reg;
 }
 
+// Helper struct for load lane and store lane to indicate what memory size
+// to be encoded in the opcode, and the new lane index.
+struct LoadStoreLaneParams {
+  MSASize sz;
+  uint8_t laneidx;
+  LoadStoreLaneParams(uint8_t laneidx, MSASize sz, int lanes)
+      : sz(sz), laneidx(laneidx % lanes) {}
+};
+
+LoadStoreLaneParams GetLoadStoreLaneParams(MachineRepresentation rep,
+                                           uint8_t laneidx) {
+  switch (rep) {
+    case MachineRepresentation::kWord8:
+      return LoadStoreLaneParams(laneidx, MSA_B, 16);
+    case MachineRepresentation::kWord16:
+      return LoadStoreLaneParams(laneidx, MSA_H, 8);
+    case MachineRepresentation::kWord32:
+      return LoadStoreLaneParams(laneidx, MSA_W, 4);
+    case MachineRepresentation::kWord64:
+      return LoadStoreLaneParams(laneidx, MSA_D, 2);
+    default:
+      break;
+  }
+  UNREACHABLE();
+}
 }  // namespace
 
 void InstructionSelector::VisitStoreLane(Node* node) {
   StoreLaneParameters params = StoreLaneParametersOf(node->op());
-  LoadStoreLaneParams f(params.rep, params.laneidx);
+  LoadStoreLaneParams f = GetLoadStoreLaneParams(params.rep, params.laneidx);
   InstructionCode opcode = kMips64S128StoreLane;
   opcode |= MiscField::encode(f.sz);
 
@@ -418,7 +443,8 @@ void InstructionSelector::VisitStoreLane(Node* node) {
 
 void InstructionSelector::VisitLoadLane(Node* node) {
   LoadLaneParameters params = LoadLaneParametersOf(node->op());
-  LoadStoreLaneParams f(params.rep.representation(), params.laneidx);
+  LoadStoreLaneParams f =
+      GetLoadStoreLaneParams(params.rep.representation(), params.laneidx);
   InstructionCode opcode = kMips64S128LoadLane;
   opcode |= MiscField::encode(f.sz);
 
@@ -434,20 +460,16 @@ void InstructionSelector::VisitLoadTransform(Node* node) {
   InstructionCode opcode = kArchNop;
   switch (params.transformation) {
     case LoadTransformation::kS128Load8Splat:
-      opcode = kMips64S128LoadSplat;
-      opcode |= MiscField::encode(MSASize::MSA_B);
+      opcode = kMips64S128Load8Splat;
       break;
     case LoadTransformation::kS128Load16Splat:
-      opcode = kMips64S128LoadSplat;
-      opcode |= MiscField::encode(MSASize::MSA_H);
+      opcode = kMips64S128Load16Splat;
       break;
     case LoadTransformation::kS128Load32Splat:
-      opcode = kMips64S128LoadSplat;
-      opcode |= MiscField::encode(MSASize::MSA_W);
+      opcode = kMips64S128Load32Splat;
       break;
     case LoadTransformation::kS128Load64Splat:
-      opcode = kMips64S128LoadSplat;
-      opcode |= MiscField::encode(MSASize::MSA_D);
+      opcode = kMips64S128Load64Splat;
       break;
     case LoadTransformation::kS128Load8x8S:
       opcode = kMips64S128Load8x8S;
@@ -517,7 +539,7 @@ void InstructionSelector::VisitLoad(Node* node) {
   }
   if (node->opcode() == IrOpcode::kPoisonedLoad) {
     CHECK_NE(poisoning_level_, PoisoningMitigationLevel::kDontPoison);
-    opcode |= AccessModeField::encode(kMemoryAccessPoisoned);
+    opcode |= MiscField::encode(kMemoryAccessPoisoned);
   }
 
   EmitLoad(this, node, opcode);
@@ -1768,7 +1790,7 @@ void InstructionSelector::EmitPrepareArguments(
       ++slot;
     }
   } else {
-    int push_count = static_cast<int>(call_descriptor->ParameterSlotCount());
+    int push_count = static_cast<int>(call_descriptor->StackParameterCount());
     if (push_count > 0) {
       // Calculate needed space
       int stack_size = 0;
@@ -1816,6 +1838,8 @@ void InstructionSelector::EmitPrepareResults(
 }
 
 bool InstructionSelector::IsTailCallAddressImmediate() { return false; }
+
+int InstructionSelector::GetTempsCountForTailCallFromJSFunction() { return 3; }
 
 void InstructionSelector::VisitUnalignedLoad(Node* node) {
   LoadRepresentation load_rep = LoadRepresentationOf(node->op());
@@ -2850,64 +2874,53 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(I16x8)                \
   V(I8x16)
 
-#define SIMD_UNOP_LIST(V)                                    \
-  V(F64x2Abs, kMips64F64x2Abs)                               \
-  V(F64x2Neg, kMips64F64x2Neg)                               \
-  V(F64x2Sqrt, kMips64F64x2Sqrt)                             \
-  V(F64x2Ceil, kMips64F64x2Ceil)                             \
-  V(F64x2Floor, kMips64F64x2Floor)                           \
-  V(F64x2Trunc, kMips64F64x2Trunc)                           \
-  V(F64x2NearestInt, kMips64F64x2NearestInt)                 \
-  V(I64x2Neg, kMips64I64x2Neg)                               \
-  V(I64x2BitMask, kMips64I64x2BitMask)                       \
-  V(F64x2ConvertLowI32x4S, kMips64F64x2ConvertLowI32x4S)     \
-  V(F64x2ConvertLowI32x4U, kMips64F64x2ConvertLowI32x4U)     \
-  V(F64x2PromoteLowF32x4, kMips64F64x2PromoteLowF32x4)       \
-  V(F32x4SConvertI32x4, kMips64F32x4SConvertI32x4)           \
-  V(F32x4UConvertI32x4, kMips64F32x4UConvertI32x4)           \
-  V(F32x4Abs, kMips64F32x4Abs)                               \
-  V(F32x4Neg, kMips64F32x4Neg)                               \
-  V(F32x4Sqrt, kMips64F32x4Sqrt)                             \
-  V(F32x4RecipApprox, kMips64F32x4RecipApprox)               \
-  V(F32x4RecipSqrtApprox, kMips64F32x4RecipSqrtApprox)       \
-  V(F32x4Ceil, kMips64F32x4Ceil)                             \
-  V(F32x4Floor, kMips64F32x4Floor)                           \
-  V(F32x4Trunc, kMips64F32x4Trunc)                           \
-  V(F32x4NearestInt, kMips64F32x4NearestInt)                 \
-  V(F32x4DemoteF64x2Zero, kMips64F32x4DemoteF64x2Zero)       \
-  V(I64x2Abs, kMips64I64x2Abs)                               \
-  V(I64x2SConvertI32x4Low, kMips64I64x2SConvertI32x4Low)     \
-  V(I64x2SConvertI32x4High, kMips64I64x2SConvertI32x4High)   \
-  V(I64x2UConvertI32x4Low, kMips64I64x2UConvertI32x4Low)     \
-  V(I64x2UConvertI32x4High, kMips64I64x2UConvertI32x4High)   \
-  V(I32x4SConvertF32x4, kMips64I32x4SConvertF32x4)           \
-  V(I32x4UConvertF32x4, kMips64I32x4UConvertF32x4)           \
-  V(I32x4Neg, kMips64I32x4Neg)                               \
-  V(I32x4SConvertI16x8Low, kMips64I32x4SConvertI16x8Low)     \
-  V(I32x4SConvertI16x8High, kMips64I32x4SConvertI16x8High)   \
-  V(I32x4UConvertI16x8Low, kMips64I32x4UConvertI16x8Low)     \
-  V(I32x4UConvertI16x8High, kMips64I32x4UConvertI16x8High)   \
-  V(I32x4Abs, kMips64I32x4Abs)                               \
-  V(I32x4BitMask, kMips64I32x4BitMask)                       \
-  V(I32x4TruncSatF64x2SZero, kMips64I32x4TruncSatF64x2SZero) \
-  V(I32x4TruncSatF64x2UZero, kMips64I32x4TruncSatF64x2UZero) \
-  V(I16x8Neg, kMips64I16x8Neg)                               \
-  V(I16x8SConvertI8x16Low, kMips64I16x8SConvertI8x16Low)     \
-  V(I16x8SConvertI8x16High, kMips64I16x8SConvertI8x16High)   \
-  V(I16x8UConvertI8x16Low, kMips64I16x8UConvertI8x16Low)     \
-  V(I16x8UConvertI8x16High, kMips64I16x8UConvertI8x16High)   \
-  V(I16x8Abs, kMips64I16x8Abs)                               \
-  V(I16x8BitMask, kMips64I16x8BitMask)                       \
-  V(I8x16Neg, kMips64I8x16Neg)                               \
-  V(I8x16Abs, kMips64I8x16Abs)                               \
-  V(I8x16Popcnt, kMips64I8x16Popcnt)                         \
-  V(I8x16BitMask, kMips64I8x16BitMask)                       \
-  V(S128Not, kMips64S128Not)                                 \
-  V(I64x2AllTrue, kMips64I64x2AllTrue)                       \
-  V(I32x4AllTrue, kMips64I32x4AllTrue)                       \
-  V(I16x8AllTrue, kMips64I16x8AllTrue)                       \
-  V(I8x16AllTrue, kMips64I8x16AllTrue)                       \
-  V(V128AnyTrue, kMips64V128AnyTrue)
+#define SIMD_UNOP_LIST(V)                                  \
+  V(F64x2Abs, kMips64F64x2Abs)                             \
+  V(F64x2Neg, kMips64F64x2Neg)                             \
+  V(F64x2Sqrt, kMips64F64x2Sqrt)                           \
+  V(F64x2Ceil, kMips64F64x2Ceil)                           \
+  V(F64x2Floor, kMips64F64x2Floor)                         \
+  V(F64x2Trunc, kMips64F64x2Trunc)                         \
+  V(F64x2NearestInt, kMips64F64x2NearestInt)               \
+  V(I64x2Neg, kMips64I64x2Neg)                             \
+  V(I64x2BitMask, kMips64I64x2BitMask)                     \
+  V(F32x4SConvertI32x4, kMips64F32x4SConvertI32x4)         \
+  V(F32x4UConvertI32x4, kMips64F32x4UConvertI32x4)         \
+  V(F32x4Abs, kMips64F32x4Abs)                             \
+  V(F32x4Neg, kMips64F32x4Neg)                             \
+  V(F32x4Sqrt, kMips64F32x4Sqrt)                           \
+  V(F32x4RecipApprox, kMips64F32x4RecipApprox)             \
+  V(F32x4RecipSqrtApprox, kMips64F32x4RecipSqrtApprox)     \
+  V(F32x4Ceil, kMips64F32x4Ceil)                           \
+  V(F32x4Floor, kMips64F32x4Floor)                         \
+  V(F32x4Trunc, kMips64F32x4Trunc)                         \
+  V(F32x4NearestInt, kMips64F32x4NearestInt)               \
+  V(I32x4SConvertF32x4, kMips64I32x4SConvertF32x4)         \
+  V(I32x4UConvertF32x4, kMips64I32x4UConvertF32x4)         \
+  V(I32x4Neg, kMips64I32x4Neg)                             \
+  V(I32x4SConvertI16x8Low, kMips64I32x4SConvertI16x8Low)   \
+  V(I32x4SConvertI16x8High, kMips64I32x4SConvertI16x8High) \
+  V(I32x4UConvertI16x8Low, kMips64I32x4UConvertI16x8Low)   \
+  V(I32x4UConvertI16x8High, kMips64I32x4UConvertI16x8High) \
+  V(I32x4Abs, kMips64I32x4Abs)                             \
+  V(I32x4BitMask, kMips64I32x4BitMask)                     \
+  V(I16x8Neg, kMips64I16x8Neg)                             \
+  V(I16x8SConvertI8x16Low, kMips64I16x8SConvertI8x16Low)   \
+  V(I16x8SConvertI8x16High, kMips64I16x8SConvertI8x16High) \
+  V(I16x8UConvertI8x16Low, kMips64I16x8UConvertI8x16Low)   \
+  V(I16x8UConvertI8x16High, kMips64I16x8UConvertI8x16High) \
+  V(I16x8Abs, kMips64I16x8Abs)                             \
+  V(I16x8BitMask, kMips64I16x8BitMask)                     \
+  V(I8x16Neg, kMips64I8x16Neg)                             \
+  V(I8x16Abs, kMips64I8x16Abs)                             \
+  V(I8x16BitMask, kMips64I8x16BitMask)                     \
+  V(S128Not, kMips64S128Not)                               \
+  V(V32x4AnyTrue, kMips64V32x4AnyTrue)                     \
+  V(V32x4AllTrue, kMips64V32x4AllTrue)                     \
+  V(V16x8AnyTrue, kMips64V16x8AnyTrue)                     \
+  V(V16x8AllTrue, kMips64V16x8AllTrue)                     \
+  V(V8x16AnyTrue, kMips64V8x16AnyTrue)                     \
+  V(V8x16AllTrue, kMips64V8x16AllTrue)
 
 #define SIMD_SHIFT_OP_LIST(V) \
   V(I64x2Shl)                 \
@@ -2935,13 +2948,11 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(F64x2Lt, kMips64F64x2Lt)                             \
   V(F64x2Le, kMips64F64x2Le)                             \
   V(I64x2Eq, kMips64I64x2Eq)                             \
-  V(I64x2Ne, kMips64I64x2Ne)                             \
   V(I64x2Add, kMips64I64x2Add)                           \
   V(I64x2Sub, kMips64I64x2Sub)                           \
   V(I64x2Mul, kMips64I64x2Mul)                           \
-  V(I64x2GtS, kMips64I64x2GtS)                           \
-  V(I64x2GeS, kMips64I64x2GeS)                           \
   V(F32x4Add, kMips64F32x4Add)                           \
+  V(F32x4AddHoriz, kMips64F32x4AddHoriz)                 \
   V(F32x4Sub, kMips64F32x4Sub)                           \
   V(F32x4Mul, kMips64F32x4Mul)                           \
   V(F32x4Div, kMips64F32x4Div)                           \
@@ -2952,6 +2963,7 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(F32x4Lt, kMips64F32x4Lt)                             \
   V(F32x4Le, kMips64F32x4Le)                             \
   V(I32x4Add, kMips64I32x4Add)                           \
+  V(I32x4AddHoriz, kMips64I32x4AddHoriz)                 \
   V(I32x4Sub, kMips64I32x4Sub)                           \
   V(I32x4Mul, kMips64I32x4Mul)                           \
   V(I32x4MaxS, kMips64I32x4MaxS)                         \
@@ -2968,6 +2980,7 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(I16x8Add, kMips64I16x8Add)                           \
   V(I16x8AddSatS, kMips64I16x8AddSatS)                   \
   V(I16x8AddSatU, kMips64I16x8AddSatU)                   \
+  V(I16x8AddHoriz, kMips64I16x8AddHoriz)                 \
   V(I16x8Sub, kMips64I16x8Sub)                           \
   V(I16x8SubSatS, kMips64I16x8SubSatS)                   \
   V(I16x8SubSatU, kMips64I16x8SubSatU)                   \
@@ -2985,13 +2998,13 @@ void InstructionSelector::VisitInt64AbsWithOverflow(Node* node) {
   V(I16x8RoundingAverageU, kMips64I16x8RoundingAverageU) \
   V(I16x8SConvertI32x4, kMips64I16x8SConvertI32x4)       \
   V(I16x8UConvertI32x4, kMips64I16x8UConvertI32x4)       \
-  V(I16x8Q15MulRSatS, kMips64I16x8Q15MulRSatS)           \
   V(I8x16Add, kMips64I8x16Add)                           \
   V(I8x16AddSatS, kMips64I8x16AddSatS)                   \
   V(I8x16AddSatU, kMips64I8x16AddSatU)                   \
   V(I8x16Sub, kMips64I8x16Sub)                           \
   V(I8x16SubSatS, kMips64I8x16SubSatS)                   \
   V(I8x16SubSatU, kMips64I8x16SubSatU)                   \
+  V(I8x16Mul, kMips64I8x16Mul)                           \
   V(I8x16MaxS, kMips64I8x16MaxS)                         \
   V(I8x16MinS, kMips64I8x16MinS)                         \
   V(I8x16MaxU, kMips64I8x16MaxU)                         \
@@ -3088,7 +3101,6 @@ void InstructionSelector::VisitS128Select(Node* node) {
   VisitRRRR(this, kMips64S128Select, node);
 }
 
-#if V8_ENABLE_WEBASSEMBLY
 namespace {
 
 struct ShuffleEntry {
@@ -3170,9 +3182,8 @@ bool TryMatchArchShuffle(const uint8_t* shuffle, const ShuffleEntry* table,
 
 void InstructionSelector::VisitI8x16Shuffle(Node* node) {
   uint8_t shuffle[kSimd128Size];
-  auto param = ShuffleParameterOf(node->op());
-  bool is_swizzle = param.is_swizzle();
-  base::Memcpy(shuffle, param.imm().data(), kSimd128Size);
+  bool is_swizzle;
+  CanonicalizeShuffle(node, shuffle, &is_swizzle);
   uint8_t shuffle32x4[4];
   ArchOpcode opcode;
   if (TryMatchArchShuffle(shuffle, arch_shuffles, arraysize(arch_shuffles),
@@ -3202,9 +3213,6 @@ void InstructionSelector::VisitI8x16Shuffle(Node* node) {
        g.UseImmediate(wasm::SimdShuffle::Pack4Lanes(shuffle + 8)),
        g.UseImmediate(wasm::SimdShuffle::Pack4Lanes(shuffle + 12)));
 }
-#else
-void InstructionSelector::VisitI8x16Shuffle(Node* node) { UNREACHABLE(); }
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 void InstructionSelector::VisitI8x16Swizzle(Node* node) {
   Mips64OperandGenerator g(this);
@@ -3278,18 +3286,6 @@ VISIT_EXT_MUL(I32x4, I16x8U, MSAU16)
 VISIT_EXT_MUL(I16x8, I8x16S, MSAS8)
 VISIT_EXT_MUL(I16x8, I8x16U, MSAU8)
 #undef VISIT_EXT_MUL
-
-#define VISIT_EXTADD_PAIRWISE(OPCODE, TYPE)                          \
-  void InstructionSelector::Visit##OPCODE(Node* node) {              \
-    Mips64OperandGenerator g(this);                                  \
-    Emit(kMips64ExtAddPairwise | MiscField::encode(TYPE),            \
-         g.DefineAsRegister(node), g.UseRegister(node->InputAt(0))); \
-  }
-VISIT_EXTADD_PAIRWISE(I16x8ExtAddPairwiseI8x16S, MSAS8)
-VISIT_EXTADD_PAIRWISE(I16x8ExtAddPairwiseI8x16U, MSAU8)
-VISIT_EXTADD_PAIRWISE(I32x4ExtAddPairwiseI16x8S, MSAS16)
-VISIT_EXTADD_PAIRWISE(I32x4ExtAddPairwiseI16x8U, MSAU16)
-#undef VISIT_EXTADD_PAIRWISE
 
 // static
 MachineOperatorBuilder::Flags

@@ -30,7 +30,7 @@ int AddToSetAndGetHash(Isolate* isolate, Handle<JSObject> obj,
 
 int GetPropertyDictionaryHash(Handle<JSObject> obj) {
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    return obj->property_dictionary_swiss().Hash();
+    return obj->property_dictionary_ordered().Hash();
   } else {
     return obj->property_dictionary().Hash();
   }
@@ -38,7 +38,7 @@ int GetPropertyDictionaryHash(Handle<JSObject> obj) {
 
 int GetPropertyDictionaryLength(Handle<JSObject> obj) {
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    return obj->property_dictionary_swiss().Capacity();
+    return obj->property_dictionary_ordered().length();
   } else {
     return obj->property_dictionary().length();
   }
@@ -46,7 +46,7 @@ int GetPropertyDictionaryLength(Handle<JSObject> obj) {
 
 void CheckIsDictionaryModeObject(Handle<JSObject> obj) {
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    CHECK(obj->raw_properties_or_hash().IsSwissNameDictionary());
+    CHECK(obj->raw_properties_or_hash().IsOrderedNameDictionary());
   } else {
     CHECK(obj->raw_properties_or_hash().IsNameDictionary());
   }

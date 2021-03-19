@@ -21,11 +21,9 @@ EXTRA_FLAGS = [
   (0.1, '--interrupt-budget=100'),
   (0.1, '--liftoff'),
   (0.2, '--no-analyze-environment-liveness'),
-  # TODO(machenbach): Enable when it doesn't collide with crashing on missing
-  # simd features.
-  #(0.1, '--no-enable-sse3'),
-  #(0.1, '--no-enable-ssse3'),
-  #(0.1, '--no-enable-sse4_1'),
+  (0.1, '--no-enable-sse3'),
+  (0.1, '--no-enable-ssse3'),
+  (0.1, '--no-enable-sse4_1'),
   (0.1, '--no-enable-sse4_2'),
   (0.1, '--no-enable-sahf'),
   (0.1, '--no-enable-avx'),

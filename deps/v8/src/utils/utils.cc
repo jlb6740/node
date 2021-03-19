@@ -80,12 +80,12 @@ std::ostream& operator<<(std::ostream& os, FeedbackSlot slot) {
   return os << "#" << slot.id_;
 }
 
-size_t hash_value(BytecodeOffset id) {
+size_t hash_value(BailoutId id) {
   base::hash<int> h;
   return h(id.id_);
 }
 
-std::ostream& operator<<(std::ostream& os, BytecodeOffset id) {
+std::ostream& operator<<(std::ostream& os, BailoutId id) {
   return os << id.id_;
 }
 

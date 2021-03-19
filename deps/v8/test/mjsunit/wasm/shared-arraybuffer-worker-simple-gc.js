@@ -7,14 +7,13 @@
 const kNumIterations = 10;
 
 function NewWorker() {
-  function workerCode() {
-    onmessage = (msg) => {
-      if (msg.memory) postMessage("ack");
-      if (msg.quit) postMessage("bye");
-      gc();
-    }
-  }
-  return new Worker(workerCode, {type: 'function'});
+  let script =
+`onmessage = (msg) => {
+   if (msg.memory) postMessage("ack");
+   if (msg.quit) postMessage("bye");
+   gc();
+}`;
+  return new Worker(script, {type: 'string'});
 }
 
 function PingWorker(worker, memory) {

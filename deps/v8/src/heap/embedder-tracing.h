@@ -5,7 +5,6 @@
 #ifndef V8_HEAP_EMBEDDER_TRACING_H_
 #define V8_HEAP_EMBEDDER_TRACING_H_
 
-#include "include/v8-cppgc.h"
 #include "include/v8.h"
 #include "src/common/globals.h"
 #include "src/flags/flags.h"
@@ -25,16 +24,15 @@ class V8_EXPORT_PRIVATE LocalEmbedderHeapTracer final {
   // internals in a named way. See ProcessingScope::TracePossibleJSWrapper()
   // below on how a V8 object is parsed to gather the information.
   struct VerboseWrapperInfo {
-    constexpr explicit VerboseWrapperInfo(const WrapperInfo& raw_info)
+    explicit VerboseWrapperInfo(const WrapperInfo& raw_info)
         : raw_info(raw_info) {}
 
     // Information describing the type pointed to via instance().
     void* type_info() const { return raw_info.first; }
     // Direct pointer to an instance described by type_info().
     void* instance() const { return raw_info.second; }
-    // Returns whether the info is empty and thus does not keep a C++ object
-    // alive.
-    bool is_empty() const { return !type_info() || !instance(); }
+
+    bool is_valid() const { return type_info(); }
 
     const WrapperInfo& raw_info;
   };
@@ -54,9 +52,10 @@ class V8_EXPORT_PRIVATE LocalEmbedderHeapTracer final {
     void FlushWrapperCacheIfFull();
 
     LocalEmbedderHeapTracer* const tracer_;
-    const WrapperDescriptor wrapper_descriptor_;
     WrapperCache wrapper_cache_;
   };
+
+  static WrapperInfo ExtractWrapperInfo(Isolate* isolate, JSObject js_object);
 
   explicit LocalEmbedderHeapTracer(Isolate* isolate) : isolate_(isolate) {}
 
@@ -122,28 +121,8 @@ class V8_EXPORT_PRIVATE LocalEmbedderHeapTracer final {
   size_t used_size() const { return remote_stats_.used_size; }
   size_t allocated_size() const { return remote_stats_.allocated_size; }
 
-  WrapperInfo ExtractWrapperInfo(Isolate* isolate, JSObject js_object);
-
-  void SetWrapperDescriptor(const WrapperDescriptor& wrapper_descriptor) {
-    wrapper_descriptor_ = wrapper_descriptor;
-  }
-
-  void UpdateRemoteStats(size_t, double);
-
  private:
   static constexpr size_t kEmbedderAllocatedThreshold = 128 * KB;
-
-  static constexpr WrapperDescriptor::InternalFieldIndex
-      kDefaultWrapperTypeEmbedderIndex = 0;
-  static constexpr WrapperDescriptor::InternalFieldIndex
-      kDefaultWrapperInstanceEmbedderIndex = 1;
-
-  static constexpr WrapperDescriptor GetDefaultWrapperDescriptor() {
-    // The default descriptor assumes the indices that known embedders use.
-    return WrapperDescriptor(kDefaultWrapperTypeEmbedderIndex,
-                             kDefaultWrapperInstanceEmbedderIndex,
-                             WrapperDescriptor::kUnknownEmbedderId);
-  }
 
   Isolate* const isolate_;
   EmbedderHeapTracer* remote_tracer_ = nullptr;
@@ -167,11 +146,6 @@ class V8_EXPORT_PRIVATE LocalEmbedderHeapTracer final {
     // on each increment.
     size_t allocated_size_limit_for_check = 0;
   } remote_stats_;
-
-  // Default descriptor only used when the embedder is using EmbedderHeapTracer.
-  // The value is overriden by CppHeap with values that the embedder provided
-  // upon initialization.
-  WrapperDescriptor wrapper_descriptor_ = GetDefaultWrapperDescriptor();
 
   friend class EmbedderStackStateScope;
 };

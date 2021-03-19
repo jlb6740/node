@@ -275,7 +275,7 @@ class Expectations {
     CHECK_EQ(expected_nof, map.NumberOfOwnDescriptors());
     CHECK(!map.is_dictionary_map());
 
-    DescriptorArray descriptors = map.instance_descriptors();
+    DescriptorArray descriptors = map.instance_descriptors(kRelaxedLoad);
     CHECK(expected_nof <= number_of_properties_);
     for (InternalIndex i : InternalIndex::Range(expected_nof)) {
       if (!Check(descriptors, i)) {
@@ -444,9 +444,8 @@ class Expectations {
     Handle<Object> getter(pair->getter(), isolate);
     Handle<Object> setter(pair->setter(), isolate);
 
-    InternalIndex descriptor =
-        map->instance_descriptors(isolate).SearchWithCache(isolate, *name,
-                                                           *map);
+    InternalIndex descriptor = map->instance_descriptors(kRelaxedLoad)
+                                   .SearchWithCache(isolate, *name, *map);
     map = Map::TransitionToAccessorProperty(isolate, map, name, descriptor,
                                             getter, setter, attributes);
     CHECK(!map->is_deprecated());
@@ -554,7 +553,7 @@ TEST(ReconfigureAccessorToNonExistingDataFieldHeavy) {
   CHECK_EQ(1, obj->map().NumberOfOwnDescriptors());
   InternalIndex first(0);
   CHECK(obj->map()
-            .instance_descriptors(isolate)
+            .instance_descriptors(kRelaxedLoad)
             .GetStrongValue(first)
             .IsAccessorPair());
 
@@ -822,7 +821,7 @@ TEST(GeneralizeDoubleFieldToTagged) {
       {PropertyConstness::kMutable, Representation::Double(), any_type},
       {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 }
 
 TEST(GeneralizeHeapObjectFieldToTagged) {
@@ -1067,31 +1066,20 @@ void TestReconfigureDataFieldAttribute_GeneralizeField(
   Handle<Code> code_field_type = CreateDummyOptimizedCode(isolate);
   Handle<Code> code_field_repr = CreateDummyOptimizedCode(isolate);
   Handle<Code> code_field_const = CreateDummyOptimizedCode(isolate);
-  Handle<Code> code_src_field_const = CreateDummyOptimizedCode(isolate);
-  {
-    Handle<Map> field_owner(
-        map->FindFieldOwner(isolate, InternalIndex(kSplitProp)), isolate);
-    DependentCode::InstallDependency(
-        isolate, MaybeObjectHandle::Weak(code_field_type), field_owner,
-        DependentCode::kFieldTypeGroup);
-    DependentCode::InstallDependency(
-        isolate, MaybeObjectHandle::Weak(code_field_repr), field_owner,
-        DependentCode::kFieldRepresentationGroup);
-    DependentCode::InstallDependency(
-        isolate, MaybeObjectHandle::Weak(code_field_const), field_owner,
-        DependentCode::kFieldConstGroup);
-  }
-  {
-    Handle<Map> field_owner(
-        map2->FindFieldOwner(isolate, InternalIndex(kSplitProp)), isolate);
-    DependentCode::InstallDependency(
-        isolate, MaybeObjectHandle::Weak(code_src_field_const), field_owner,
-        DependentCode::kFieldConstGroup);
-  }
+  Handle<Map> field_owner(
+      map->FindFieldOwner(isolate, InternalIndex(kSplitProp)), isolate);
+  DependentCode::InstallDependency(isolate,
+                                   MaybeObjectHandle::Weak(code_field_type),
+                                   field_owner, DependentCode::kFieldTypeGroup);
+  DependentCode::InstallDependency(
+      isolate, MaybeObjectHandle::Weak(code_field_repr), field_owner,
+      DependentCode::kFieldRepresentationGroup);
+  DependentCode::InstallDependency(
+      isolate, MaybeObjectHandle::Weak(code_field_const), field_owner,
+      DependentCode::kFieldConstGroup);
   CHECK(!code_field_type->marked_for_deoptimization());
   CHECK(!code_field_repr->marked_for_deoptimization());
   CHECK(!code_field_const->marked_for_deoptimization());
-  CHECK(!code_src_field_const->marked_for_deoptimization());
 
   // Reconfigure attributes of property |kSplitProp| of |map2| to NONE, which
   // should generalize representations in |map1|.
@@ -1099,21 +1087,10 @@ void TestReconfigureDataFieldAttribute_GeneralizeField(
       Map::ReconfigureExistingProperty(isolate, map2, InternalIndex(kSplitProp),
                                        kData, NONE, PropertyConstness::kConst);
 
-  // |map2| should be mosly left unchanged but marked unstable and if the
-  // source property was constant it should also be transitioned to kMutable.
+  // |map2| should be left unchanged but marked unstable.
   CHECK(!map2->is_stable());
   CHECK(!map2->is_deprecated());
   CHECK_NE(*map2, *new_map);
-  // If the "source" property was const then update constness expectations for
-  // "source" map and ensure the deoptimization dependency was triggered.
-  if (to.constness == PropertyConstness::kConst) {
-    expectations2.SetDataField(kSplitProp, READ_ONLY,
-                               PropertyConstness::kMutable, to.representation,
-                               to.type);
-    CHECK(code_src_field_const->marked_for_deoptimization());
-  } else {
-    CHECK(!code_src_field_const->marked_for_deoptimization());
-  }
   CHECK(expectations2.Check(*map2));
 
   for (int i = kSplitProp; i < kPropCount; i++) {
@@ -1238,25 +1215,25 @@ TEST(ReconfigureDataFieldAttribute_GeneralizeDoubleFieldToTagged) {
       {PropertyConstness::kConst, Representation::Double(), any_type},
       {PropertyConstness::kConst, Representation::HeapObject(), value_type},
       {PropertyConstness::kConst, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 
   TestReconfigureDataFieldAttribute_GeneralizeField(
       {PropertyConstness::kConst, Representation::Double(), any_type},
       {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 
   TestReconfigureDataFieldAttribute_GeneralizeField(
       {PropertyConstness::kMutable, Representation::Double(), any_type},
       {PropertyConstness::kConst, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 
   TestReconfigureDataFieldAttribute_GeneralizeField(
       {PropertyConstness::kMutable, Representation::Double(), any_type},
       {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 }
 
 TEST(ReconfigureDataFieldAttribute_GeneralizeHeapObjFieldToHeapObj) {
@@ -2295,7 +2272,7 @@ TEST(ElementsKindTransitionFromMapOwningDescriptor) {
         {PropertyConstness::kMutable, Representation::Double(), any_type},
         {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
         {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-        kFieldOwnerDependency);
+        FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
   }
 }
 
@@ -2363,7 +2340,7 @@ TEST(ElementsKindTransitionFromMapNotOwningDescriptor) {
         {PropertyConstness::kMutable, Representation::Double(), any_type},
         {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
         {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-        kFieldOwnerDependency);
+        FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
   }
 }
 
@@ -2407,7 +2384,7 @@ TEST(PrototypeTransitionFromMapOwningDescriptor) {
       {PropertyConstness::kMutable, Representation::Double(), any_type},
       {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 }
 
 TEST(PrototypeTransitionFromMapNotOwningDescriptor) {
@@ -2461,7 +2438,7 @@ TEST(PrototypeTransitionFromMapNotOwningDescriptor) {
       {PropertyConstness::kMutable, Representation::Double(), any_type},
       {PropertyConstness::kMutable, Representation::HeapObject(), value_type},
       {PropertyConstness::kMutable, Representation::Tagged(), any_type},
-      kFieldOwnerDependency);
+      FLAG_unbox_double_fields ? kDeprecation : kFieldOwnerDependency);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2830,12 +2807,13 @@ void TestStoreToConstantField(const char* store_func_source,
   CHECK(!map->is_deprecated());
   CHECK_EQ(1, map->NumberOfOwnDescriptors());
   InternalIndex first(0);
-  CHECK(map->instance_descriptors(isolate)
+  CHECK(map->instance_descriptors(kRelaxedLoad)
             .GetDetails(first)
             .representation()
             .Equals(expected_rep));
-  CHECK_EQ(PropertyConstness::kConst,
-           map->instance_descriptors(isolate).GetDetails(first).constness());
+  CHECK_EQ(
+      PropertyConstness::kConst,
+      map->instance_descriptors(kRelaxedLoad).GetDetails(first).constness());
 
   // Store value2 to obj2 and check that it got same map and property details
   // did not change.
@@ -2847,12 +2825,13 @@ void TestStoreToConstantField(const char* store_func_source,
   CHECK(!map->is_deprecated());
   CHECK_EQ(1, map->NumberOfOwnDescriptors());
 
-  CHECK(map->instance_descriptors(isolate)
+  CHECK(map->instance_descriptors(kRelaxedLoad)
             .GetDetails(first)
             .representation()
             .Equals(expected_rep));
-  CHECK_EQ(PropertyConstness::kConst,
-           map->instance_descriptors(isolate).GetDetails(first).constness());
+  CHECK_EQ(
+      PropertyConstness::kConst,
+      map->instance_descriptors(kRelaxedLoad).GetDetails(first).constness());
 
   // Store value2 to obj1 and check that property became mutable.
   Call(isolate, store_func, obj1, value2).Check();
@@ -2862,12 +2841,13 @@ void TestStoreToConstantField(const char* store_func_source,
   CHECK(!map->is_deprecated());
   CHECK_EQ(1, map->NumberOfOwnDescriptors());
 
-  CHECK(map->instance_descriptors(isolate)
+  CHECK(map->instance_descriptors(kRelaxedLoad)
             .GetDetails(first)
             .representation()
             .Equals(expected_rep));
-  CHECK_EQ(expected_constness,
-           map->instance_descriptors(isolate).GetDetails(first).constness());
+  CHECK_EQ(
+      expected_constness,
+      map->instance_descriptors(kRelaxedLoad).GetDetails(first).constness());
 }
 
 void TestStoreToConstantField_PlusMinusZero(const char* store_func_source,

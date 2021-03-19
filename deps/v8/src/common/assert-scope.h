@@ -67,11 +67,6 @@ class V8_NODISCARD PerIsolateAssertScope {
 
   static bool IsAllowed(Isolate* isolate);
 
-  V8_EXPORT_PRIVATE static void Open(Isolate* isolate,
-                                     bool* was_execution_allowed);
-  V8_EXPORT_PRIVATE static void Close(Isolate* isolate,
-                                      bool was_execution_allowed);
-
  private:
   Isolate* isolate_;
   uint32_t old_data_;

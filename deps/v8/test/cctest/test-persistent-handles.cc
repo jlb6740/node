@@ -83,6 +83,7 @@ class PersistentHandlesThread final : public v8::base::Thread {
 };
 
 TEST(CreatePersistentHandles) {
+  heap::EnsureFlagLocalHeapsEnabled();
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
 
@@ -118,6 +119,7 @@ TEST(CreatePersistentHandles) {
 }
 
 TEST(DereferencePersistentHandle) {
+  heap::EnsureFlagLocalHeapsEnabled();
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
 
@@ -137,6 +139,7 @@ TEST(DereferencePersistentHandle) {
 }
 
 TEST(DereferencePersistentHandleFailsWhenDisallowed) {
+  heap::EnsureFlagLocalHeapsEnabled();
   CcTest::InitializeVM();
   Isolate* isolate = CcTest::i_isolate();
 

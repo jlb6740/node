@@ -69,7 +69,8 @@ static Handle<FixedArray> CombineKeys(Isolate* isolate,
   int nof_descriptors = map.NumberOfOwnDescriptors();
   if (nof_descriptors == 0 && !may_have_elements) return prototype_chain_keys;
 
-  Handle<DescriptorArray> descs(map.instance_descriptors(isolate), isolate);
+  Handle<DescriptorArray> descs(map.instance_descriptors(kRelaxedLoad),
+                                isolate);
   int own_keys_length = own_keys.is_null() ? 0 : own_keys->length();
   Handle<FixedArray> combined_keys = isolate->factory()->NewFixedArray(
       own_keys_length + prototype_chain_keys_length);
@@ -372,7 +373,7 @@ Handle<FixedArray> GetFastEnumPropertyKeys(Isolate* isolate,
                                            Handle<JSObject> object) {
   Handle<Map> map(object->map(), isolate);
   Handle<FixedArray> keys(
-      map->instance_descriptors(isolate).enum_cache().keys(), isolate);
+      map->instance_descriptors(kRelaxedLoad).enum_cache().keys(), isolate);
 
   // Check if the {map} has a valid enum length, which implies that it
   // must have a valid enum cache as well.
@@ -397,7 +398,7 @@ Handle<FixedArray> GetFastEnumPropertyKeys(Isolate* isolate,
   }
 
   Handle<DescriptorArray> descriptors =
-      Handle<DescriptorArray>(map->instance_descriptors(isolate), isolate);
+      Handle<DescriptorArray>(map->instance_descriptors(kRelaxedLoad), isolate);
   isolate->counters()->enum_cache_misses()->Increment();
 
   // Create the keys array.
@@ -829,7 +830,7 @@ void CommonCopyEnumKeysTo(Isolate* isolate, Handle<Dictionary> dictionary,
       continue;
     } else {
       if (Dictionary::kIsOrderedDictionaryType) {
-        storage->set(properties, Name::cast(key));
+        storage->set(properties, dictionary->NameAt(i));
       } else {
         // If the dictionary does not store elements in enumeration order,
         // we need to sort it afterwards in CopyEnumKeysTo. To enable this we
@@ -874,11 +875,11 @@ void CopyEnumKeysTo(Isolate* isolate, Handle<Dictionary> dictionary,
 }
 
 template <>
-void CopyEnumKeysTo(Isolate* isolate, Handle<SwissNameDictionary> dictionary,
+void CopyEnumKeysTo(Isolate* isolate, Handle<OrderedNameDictionary> dictionary,
                     Handle<FixedArray> storage, KeyCollectionMode mode,
                     KeyAccumulator* accumulator) {
-  CommonCopyEnumKeysTo<SwissNameDictionary>(isolate, dictionary, storage, mode,
-                                            accumulator);
+  CommonCopyEnumKeysTo<OrderedNameDictionary>(isolate, dictionary, storage,
+                                              mode, accumulator);
 
   // No need to sort, as CommonCopyEnumKeysTo on OrderedNameDictionary
   // adds entries to |storage| in the dict's insertion order
@@ -991,7 +992,7 @@ Maybe<bool> KeyAccumulator::CollectOwnPropertyNames(Handle<JSReceiver> receiver,
         if (map.prototype(isolate_) != ReadOnlyRoots(isolate_).null_value()) {
           AllowGarbageCollection allow_gc;
           Handle<DescriptorArray> descs = Handle<DescriptorArray>(
-              map.instance_descriptors(isolate_), isolate_);
+              map.instance_descriptors(kRelaxedLoad), isolate_);
           for (InternalIndex i : InternalIndex::Range(nof_descriptors)) {
             PropertyDetails details = descs->GetDetails(i);
             if (!details.IsDontEnum()) continue;
@@ -1005,7 +1006,7 @@ Maybe<bool> KeyAccumulator::CollectOwnPropertyNames(Handle<JSReceiver> receiver,
           JSGlobalObject::cast(*object).global_dictionary(kAcquireLoad));
     } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
       enum_keys = GetOwnEnumPropertyDictionaryKeys(
-          isolate_, mode_, this, object, object->property_dictionary_swiss());
+          isolate_, mode_, this, object, object->property_dictionary_ordered());
     } else {
       enum_keys = GetOwnEnumPropertyDictionaryKeys(
           isolate_, mode_, this, object, object->property_dictionary());
@@ -1027,7 +1028,7 @@ Maybe<bool> KeyAccumulator::CollectOwnPropertyNames(Handle<JSReceiver> receiver,
     if (object->HasFastProperties()) {
       int limit = object->map().NumberOfOwnDescriptors();
       Handle<DescriptorArray> descs(
-          object->map().instance_descriptors(isolate_), isolate_);
+          object->map().instance_descriptors(kRelaxedLoad), isolate_);
       // First collect the strings,
       base::Optional<int> first_symbol =
           CollectOwnPropertyNamesInternal<true>(object, this, descs, 0, limit);
@@ -1044,7 +1045,7 @@ Maybe<bool> KeyAccumulator::CollectOwnPropertyNames(Handle<JSReceiver> receiver,
           this));
     } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
       RETURN_NOTHING_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
-          handle(object->property_dictionary_swiss(), isolate_), this));
+          handle(object->property_dictionary_ordered(), isolate_), this));
     } else {
       RETURN_NOTHING_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
           handle(object->property_dictionary(), isolate_), this));
@@ -1059,8 +1060,8 @@ ExceptionStatus KeyAccumulator::CollectPrivateNames(Handle<JSReceiver> receiver,
   DCHECK_EQ(mode_, KeyCollectionMode::kOwnOnly);
   if (object->HasFastProperties()) {
     int limit = object->map().NumberOfOwnDescriptors();
-    Handle<DescriptorArray> descs(object->map().instance_descriptors(isolate_),
-                                  isolate_);
+    Handle<DescriptorArray> descs(
+        object->map().instance_descriptors(kRelaxedLoad), isolate_);
     CollectOwnPropertyNamesInternal<false>(object, this, descs, 0, limit);
   } else if (object->IsJSGlobalObject()) {
     RETURN_FAILURE_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
@@ -1069,7 +1070,7 @@ ExceptionStatus KeyAccumulator::CollectPrivateNames(Handle<JSReceiver> receiver,
         this));
   } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
     RETURN_FAILURE_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
-        handle(object->property_dictionary_swiss(), isolate_), this));
+        handle(object->property_dictionary_ordered(), isolate_), this));
   } else {
     RETURN_FAILURE_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
         handle(object->property_dictionary(), isolate_), this));
@@ -1155,7 +1156,7 @@ Handle<FixedArray> KeyAccumulator::GetOwnEnumPropertyKeys(
   } else if (V8_DICT_MODE_PROTOTYPES_BOOL) {
     return GetOwnEnumPropertyDictionaryKeys(
         isolate, KeyCollectionMode::kOwnOnly, nullptr, object,
-        object->property_dictionary_swiss());
+        object->property_dictionary_ordered());
   } else {
     return GetOwnEnumPropertyDictionaryKeys(
         isolate, KeyCollectionMode::kOwnOnly, nullptr, object,
@@ -1188,7 +1189,7 @@ Maybe<bool> KeyAccumulator::CollectOwnJSProxyKeys(Handle<JSReceiver> receiver,
   if (filter_ == PRIVATE_NAMES_ONLY) {
     if (V8_DICT_MODE_PROTOTYPES_BOOL) {
       RETURN_NOTHING_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
-          handle(proxy->property_dictionary_swiss(), isolate_), this));
+          handle(proxy->property_dictionary_ordered(), isolate_), this));
     } else {
       RETURN_NOTHING_IF_NOT_SUCCESSFUL(CollectKeysFromDictionary(
           handle(proxy->property_dictionary(), isolate_), this));

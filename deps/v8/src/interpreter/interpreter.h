@@ -23,7 +23,6 @@ class Callable;
 class UnoptimizedCompilationJob;
 class FunctionLiteral;
 class Isolate;
-class LocalIsolate;
 class ParseInfo;
 class RootVisitor;
 class SetupIsolateDelegate;
@@ -47,8 +46,7 @@ class Interpreter {
   static std::unique_ptr<UnoptimizedCompilationJob> NewCompilationJob(
       ParseInfo* parse_info, FunctionLiteral* literal,
       AccountingAllocator* allocator,
-      std::vector<FunctionLiteral*>* eager_inner_literals,
-      LocalIsolate* local_isolate);
+      std::vector<FunctionLiteral*>* eager_inner_literals);
 
   // Creates a compilation job which will generate source positions for
   // |literal| and when finalized, store the result into |existing_bytecode|.
@@ -56,8 +54,7 @@ class Interpreter {
   NewSourcePositionCollectionJob(ParseInfo* parse_info,
                                  FunctionLiteral* literal,
                                  Handle<BytecodeArray> existing_bytecode,
-                                 AccountingAllocator* allocator,
-                                 LocalIsolate* local_isolate);
+                                 AccountingAllocator* allocator);
 
   // If the bytecode handler for |bytecode| and |operand_scale| has not yet
   // been loaded, deserialize it. Then return the handler.

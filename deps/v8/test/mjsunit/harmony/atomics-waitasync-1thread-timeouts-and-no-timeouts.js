@@ -6,11 +6,13 @@
 
 const N = 10;
 
-function workerCode(N) {
+const script = `
   const sab = new SharedArrayBuffer(16);
   const i32a = new Int32Array(sab);
   const location = 0;
   const expected_value = 0;
+
+  const N = ${N};
 
   function start() {
     // Create N async waiters; the even ones without timeout and the odd ones
@@ -34,16 +36,15 @@ function workerCode(N) {
     postMessage("notify return value " + notify_return_value);
   }
 
-  onmessage = function(param) {
+  function onmessage(param) {
     if (param == "start") {
       start();
     } else if (param == "wakeUpRemainingWaiters") {
       wakeUpRemainingWaiters();
     }
-  };
-}
+  }`
 
-const w = new Worker(workerCode, {type: 'function', arguments: [N]});
+const w = new Worker(script, {type : 'string'});
 w.postMessage("start");
 
 // Verify that all timed out waiters timed out in timeout order.

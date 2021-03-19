@@ -38,7 +38,7 @@ void ScheduledMachineLowering::Run() {
       Node* node = *instr;
       Reduction reduction;
       for (auto reducer : reducers_) {
-        reduction = reducer->Reduce(node, nullptr);
+        reduction = reducer->Reduce(node);
         if (reduction.Changed()) break;
       }
       if (reduction.Changed()) {

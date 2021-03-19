@@ -75,18 +75,6 @@ class ArrayBoilerplateDescription
   TQ_OBJECT_CONSTRUCTORS(ArrayBoilerplateDescription)
 };
 
-class RegExpBoilerplateDescription
-    : public TorqueGeneratedRegExpBoilerplateDescription<
-          RegExpBoilerplateDescription, Struct> {
- public:
-  // Dispatched behavior.
-  DECL_PRINTER(RegExpBoilerplateDescription)
-  void BriefPrintDetails(std::ostream& os);
-
- private:
-  TQ_OBJECT_CONSTRUCTORS(RegExpBoilerplateDescription)
-};
-
 class ClassBoilerplate : public FixedArray {
  public:
   enum ValueKind { kData, kGetter, kSetter };

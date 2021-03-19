@@ -54,13 +54,9 @@ class GlobalObjectNameResolver final
       : m_offset(0), m_strings(10000), m_session(session) {}
 
   const char* GetName(v8::Local<v8::Object> object) override {
-    v8::Local<v8::Context> creationContext;
-    if (!object->GetCreationContext().ToLocal(&creationContext)) {
-      return "";
-    }
     InspectedContext* context = m_session->inspector()->getContext(
         m_session->contextGroupId(),
-        InspectedContext::contextId(creationContext));
+        InspectedContext::contextId(object->CreationContext()));
     if (!context) return "";
     String16 name = context->origin();
     size_t length = name.length();
@@ -290,11 +286,7 @@ Response V8HeapProfilerAgentImpl::getObjectByHeapObjectId(
   if (!m_session->inspector()->client()->isInspectableHeapObject(heapObject))
     return Response::ServerError("Object is not available");
 
-  v8::Local<v8::Context> creationContext;
-  if (!heapObject->GetCreationContext().ToLocal(&creationContext)) {
-    return Response::ServerError("Object is not available");
-  }
-  *result = m_session->wrapObject(creationContext, heapObject,
+  *result = m_session->wrapObject(heapObject->CreationContext(), heapObject,
                                   objectGroup.fromMaybe(""), false);
   if (!*result) return Response::ServerError("Object is not available");
   return Response::Success();

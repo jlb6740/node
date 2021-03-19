@@ -153,8 +153,6 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
       return kString;
     case EXTERNAL_INTERNALIZED_STRING_TYPE:
     case EXTERNAL_ONE_BYTE_INTERNALIZED_STRING_TYPE:
-    case UNCACHED_EXTERNAL_INTERNALIZED_STRING_TYPE:
-    case UNCACHED_EXTERNAL_ONE_BYTE_INTERNALIZED_STRING_TYPE:
     case INTERNALIZED_STRING_TYPE:
     case ONE_BYTE_INTERNALIZED_STRING_TYPE:
       return kInternalizedString;
@@ -255,7 +253,6 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
     case JS_WEAK_REF_TYPE:
     case JS_WEAK_SET_TYPE:
     case JS_PROMISE_TYPE:
-#if V8_ENABLE_WEBASSEMBLY
     case WASM_ARRAY_TYPE:
     case WASM_EXCEPTION_OBJECT_TYPE:
     case WASM_GLOBAL_OBJECT_TYPE:
@@ -264,8 +261,6 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
     case WASM_MODULE_OBJECT_TYPE:
     case WASM_STRUCT_TYPE:
     case WASM_TABLE_OBJECT_TYPE:
-    case WASM_VALUE_OBJECT_TYPE:
-#endif  // V8_ENABLE_WEBASSEMBLY
     case WEAK_CELL_TYPE:
       DCHECK(!map.is_callable());
       DCHECK(!map.is_undetectable());
@@ -274,13 +269,6 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
       DCHECK(!map.is_undetectable());
       return kBoundFunction;
     case JS_FUNCTION_TYPE:
-    case JS_PROMISE_CONSTRUCTOR_TYPE:
-    case JS_REG_EXP_CONSTRUCTOR_TYPE:
-    case JS_ARRAY_CONSTRUCTOR_TYPE:
-#define TYPED_ARRAY_CONSTRUCTORS_SWITCH(Type, type, TYPE, Ctype) \
-  case TYPE##_TYPED_ARRAY_CONSTRUCTOR_TYPE:
-      TYPED_ARRAYS(TYPED_ARRAY_CONSTRUCTORS_SWITCH)
-#undef TYPED_ARRAY_CONSTRUCTORS_SWITCH
       DCHECK(!map.is_undetectable());
       return kFunction;
     case JS_PROXY_TYPE:
@@ -314,7 +302,6 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
     case BYTECODE_ARRAY_TYPE:
     case OBJECT_BOILERPLATE_DESCRIPTION_TYPE:
     case ARRAY_BOILERPLATE_DESCRIPTION_TYPE:
-    case REG_EXP_BOILERPLATE_DESCRIPTION_TYPE:
     case TRANSITION_ARRAY_TYPE:
     case FEEDBACK_CELL_TYPE:
     case CLOSURE_FEEDBACK_CELL_ARRAY_TYPE:
@@ -345,9 +332,7 @@ Type::bitset BitsetType::Lub(const MapRefLike& map) {
     case UNCOMPILED_DATA_WITHOUT_PREPARSE_DATA_TYPE:
     case UNCOMPILED_DATA_WITH_PREPARSE_DATA_TYPE:
     case COVERAGE_INFO_TYPE:
-#if V8_ENABLE_WEBASSEMBLY
     case WASM_TYPE_INFO_TYPE:
-#endif  // V8_ENABLE_WEBASSEMBLY
       return kOtherInternal;
 
     // Remaining instance types are unsupported for now. If any of them do

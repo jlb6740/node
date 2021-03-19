@@ -136,12 +136,6 @@ bool ArrayBoilerplateDescription::is_empty() const {
   return constant_elements().length() == 0;
 }
 
-//
-// RegExpBoilerplateDescription
-//
-
-TQ_OBJECT_CONSTRUCTORS_IMPL(RegExpBoilerplateDescription)
-
 }  // namespace internal
 }  // namespace v8
 

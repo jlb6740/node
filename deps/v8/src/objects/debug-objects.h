@@ -170,6 +170,10 @@ class BreakPointInfo
 class CoverageInfo
     : public TorqueGeneratedCoverageInfo<CoverageInfo, HeapObject> {
  public:
+  int StartSourcePosition(int slot_index) const;
+  int EndSourcePosition(int slot_index) const;
+  int BlockCount(int slot_index) const;
+
   void InitializeSlot(int slot_index, int start_pos, int end_pos);
   void ResetBlockCount(int slot_index);
 
@@ -186,6 +190,9 @@ class CoverageInfo
 
   // Description of layout within each slot.
   using Slot = TorqueGeneratedCoverageInfoSlotOffsets;
+
+ private:
+  int SlotFieldOffset(int slot_index, int field_offset) const;
 
   TQ_OBJECT_CONSTRUCTORS(CoverageInfo)
 };

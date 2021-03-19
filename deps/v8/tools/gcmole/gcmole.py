@@ -99,7 +99,6 @@ def MakeClangCommandLine(plugin, plugin_args, arch_cfg, clang_bin_dir,
       arch_cfg.arch_define,
       "-DENABLE_DEBUGGER_SUPPORT",
       "-DV8_INTL_SUPPORT",
-      "-DV8_ENABLE_WEBASSEMBLY",
       "-I./",
       "-Iinclude/",
       "-Iout/build/gen",
@@ -307,7 +306,7 @@ ALLOWLIST = [
 ]
 
 GC_PATTERN = ",.*Collect.*Garbage"
-SAFEPOINT_PATTERN = ",SafepointSlowPath"
+SAFEPOINT_PATTERN = ",EnterSafepoint"
 ALLOWLIST_PATTERN = "|".join("(?:%s)" % p for p in ALLOWLIST)
 
 

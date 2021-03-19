@@ -46,6 +46,10 @@ class V8_EXPORT_PRIVATE Heap final : public HeapBase,
 
   void FinalizeIncrementalGarbageCollectionIfNeeded(Config::StackState) final;
 
+  void PostGarbageCollection() final;
+
+  bool IsMarking() const;
+
   Config config_;
   GCInvoker gc_invoker_;
   HeapGrowing growing_;

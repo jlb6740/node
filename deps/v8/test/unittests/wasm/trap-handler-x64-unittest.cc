@@ -85,7 +85,7 @@ class TrapHandlerTest : public TestWithIsolate,
     backing_store_ = BackingStore::AllocateWasmMemory(i_isolate(), 1, 1,
                                                       SharedFlag::kNotShared);
     CHECK(backing_store_);
-    EXPECT_TRUE(backing_store_->has_guard_regions());
+    CHECK(backing_store_->has_guard_regions());
     // The allocated backing store ends with a guard page.
     crash_address_ = reinterpret_cast<Address>(backing_store_->buffer_start()) +
                      backing_store_->byte_length() + 32;
@@ -104,11 +104,11 @@ class TrapHandlerTest : public TestWithIsolate,
     sigemptyset(&action.sa_mask);
     action.sa_flags = SA_SIGINFO;
     // SIGSEGV happens for wasm oob memory accesses on Linux.
-    EXPECT_EQ(0, sigaction(SIGSEGV, &action, &g_old_segv_action));
+    CHECK_EQ(0, sigaction(SIGSEGV, &action, &g_old_segv_action));
     // SIGBUS happens for wasm oob memory accesses on macOS.
-    EXPECT_EQ(0, sigaction(SIGBUS, &action, &g_old_bus_action));
+    CHECK_EQ(0, sigaction(SIGBUS, &action, &g_old_bus_action));
     // SIGFPE to simulate crashes which are not handled by the trap handler.
-    EXPECT_EQ(0, sigaction(SIGFPE, &action, &g_old_fpe_action));
+    CHECK_EQ(0, sigaction(SIGFPE, &action, &g_old_fpe_action));
 #elif V8_OS_WIN
     g_registered_handler =
         AddVectoredExceptionHandler(/*first=*/0, TestHandler);
@@ -117,7 +117,7 @@ class TrapHandlerTest : public TestWithIsolate,
 
   void TearDown() override {
     // We should always have left wasm code.
-    EXPECT_TRUE(!GetThreadInWasmFlag());
+    CHECK(!GetThreadInWasmFlag());
     buffer_.reset();
     recovery_buffer_.reset();
     backing_store_.reset();
@@ -128,9 +128,9 @@ class TrapHandlerTest : public TestWithIsolate,
 #if V8_OS_LINUX || V8_OS_MACOSX || V8_OS_FREEBSD
       // The test handler cleans up the signal handler setup in the test. If the
       // test handler was not called, we have to do the cleanup ourselves.
-      EXPECT_EQ(0, sigaction(SIGSEGV, &g_old_segv_action, nullptr));
-      EXPECT_EQ(0, sigaction(SIGFPE, &g_old_fpe_action, nullptr));
-      EXPECT_EQ(0, sigaction(SIGBUS, &g_old_bus_action, nullptr));
+      CHECK_EQ(0, sigaction(SIGSEGV, &g_old_segv_action, nullptr));
+      CHECK_EQ(0, sigaction(SIGFPE, &g_old_fpe_action, nullptr));
+      CHECK_EQ(0, sigaction(SIGBUS, &g_old_bus_action, nullptr));
 #elif V8_OS_WIN
       RemoveVectoredExceptionHandler(g_registered_handler);
       g_registered_handler = nullptr;
@@ -232,21 +232,21 @@ class TrapHandlerTest : public TestWithIsolate,
     GeneratedCode<void>::FromAddress(
         i_isolate(), reinterpret_cast<Address>(buffer_->start()))
         .Call();
-    EXPECT_FALSE(g_test_handler_executed);
+    CHECK(!g_test_handler_executed);
   }
 
   // Execute the code in buffer. We expect a crash which we recover from in the
   // test handler.
   void ExecuteExpectCrash(TestingAssemblerBuffer* buffer,
                           bool check_wasm_flag = true) {
-    EXPECT_FALSE(g_test_handler_executed);
+    CHECK(!g_test_handler_executed);
     buffer->MakeExecutable();
     GeneratedCode<void>::FromAddress(i_isolate(),
                                      reinterpret_cast<Address>(buffer->start()))
         .Call();
-    EXPECT_TRUE(g_test_handler_executed);
+    CHECK(g_test_handler_executed);
     g_test_handler_executed = false;
-    if (check_wasm_flag) EXPECT_FALSE(GetThreadInWasmFlag());
+    if (check_wasm_flag) CHECK(!GetThreadInWasmFlag());
   }
 
   bool test_handler_executed() { return g_test_handler_executed; }
@@ -457,12 +457,12 @@ TEST_P(TrapHandlerTest, TestCrashInOtherThread) {
                                     desc.instr_size, 1, &protected_instruction);
 
   CodeRunner runner(this, buffer_.get());
-  EXPECT_FALSE(GetThreadInWasmFlag());
+  CHECK(!GetThreadInWasmFlag());
   // Set the thread-in-wasm flag manually in this thread.
   *trap_handler::GetThreadInWasmThreadLocalAddress() = 1;
-  EXPECT_TRUE(runner.Start());
+  CHECK(runner.Start());
   runner.Join();
-  EXPECT_TRUE(GetThreadInWasmFlag());
+  CHECK(GetThreadInWasmFlag());
   // Reset the thread-in-wasm flag.
   *trap_handler::GetThreadInWasmThreadLocalAddress() = 0;
 }

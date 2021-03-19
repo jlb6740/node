@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if !V8_ENABLE_WEBASSEMBLY
-#error This header should only be included if WebAssembly is enabled.
-#endif  // !V8_ENABLE_WEBASSEMBLY
-
 #ifndef V8_WASM_WASM_ENGINE_H_
 #define V8_WASM_WASM_ENGINE_H_
 
@@ -343,10 +339,6 @@ class V8_EXPORT_PRIVATE WasmEngine {
   // preventing this object from being destroyed.
   std::shared_ptr<OperationsBarrier> GetBarrierForBackgroundCompile();
 
-  void SampleThrowEvent(Isolate*);
-  void SampleRethrowEvent(Isolate*);
-  void SampleCatchEvent(Isolate*);
-
   // Call on process start and exit.
   static void InitializeOncePerProcess();
   static void GlobalTearDown();
@@ -365,7 +357,7 @@ class V8_EXPORT_PRIVATE WasmEngine {
       Isolate* isolate, const WasmFeatures& enabled,
       std::unique_ptr<byte[]> bytes_copy, size_t length,
       Handle<Context> context, const char* api_method_name,
-      std::shared_ptr<CompilationResultResolver> resolver, int compilation_id);
+      std::shared_ptr<CompilationResultResolver> resolver);
 
   void TriggerGC(int8_t gc_sequence_index);
 
@@ -385,8 +377,6 @@ class V8_EXPORT_PRIVATE WasmEngine {
   // Implements a GDB-remote stub for WebAssembly debugging.
   std::unique_ptr<gdb_server::GdbServer> gdb_server_;
 #endif  // V8_ENABLE_WASM_GDB_REMOTE_DEBUGGING
-
-  std::atomic<int> next_compilation_id_{0};
 
   // This mutex protects all information which is mutated concurrently or
   // fields that are initialized lazily on the first access.

@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if !V8_ENABLE_WEBASSEMBLY
-#error This header should only be included if WebAssembly is enabled.
-#endif  // !V8_ENABLE_WEBASSEMBLY
-
 #ifndef V8_WASM_MODULE_DECODER_H_
 #define V8_WASM_MODULE_DECODER_H_
 
@@ -54,18 +50,15 @@ struct AsmJsOffsets {
 };
 using AsmJsOffsetsResult = Result<AsmJsOffsets>;
 
-// The class names "NameAssoc", "NameMap", and "IndirectNameMap" match
-// the terms used by the spec:
-// https://webassembly.github.io/spec/core/bikeshed/index.html#name-section%E2%91%A0
-class NameAssoc {
+class LocalName {
  public:
-  NameAssoc(int index, WireBytesRef name) : index_(index), name_(name) {}
+  LocalName(int index, WireBytesRef name) : index_(index), name_(name) {}
 
   int index() const { return index_; }
   WireBytesRef name() const { return name_; }
 
   struct IndexLess {
-    bool operator()(const NameAssoc& a, const NameAssoc& b) const {
+    bool operator()(const LocalName& a, const LocalName& b) const {
       return a.index() < b.index();
     }
   };
@@ -75,71 +68,62 @@ class NameAssoc {
   WireBytesRef name_;
 };
 
-class NameMap {
+class LocalNamesPerFunction {
  public:
-  // For performance reasons, {NameMap} should not be copied.
-  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(NameMap);
+  // For performance reasons, {LocalNamesPerFunction} should not be copied.
+  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(LocalNamesPerFunction);
 
-  explicit NameMap(std::vector<NameAssoc> names) : names_(std::move(names)) {
+  LocalNamesPerFunction(int function_index, std::vector<LocalName> names)
+      : function_index_(function_index), names_(std::move(names)) {
     DCHECK(
-        std::is_sorted(names_.begin(), names_.end(), NameAssoc::IndexLess{}));
+        std::is_sorted(names_.begin(), names_.end(), LocalName::IndexLess{}));
   }
 
-  WireBytesRef GetName(int index) {
-    auto it = std::lower_bound(names_.begin(), names_.end(),
-                               NameAssoc{index, {}}, NameAssoc::IndexLess{});
+  int function_index() const { return function_index_; }
+
+  WireBytesRef GetName(int local_index) {
+    auto it =
+        std::lower_bound(names_.begin(), names_.end(),
+                         LocalName{local_index, {}}, LocalName::IndexLess{});
     if (it == names_.end()) return {};
-    if (it->index() != index) return {};
+    if (it->index() != local_index) return {};
     return it->name();
   }
 
- private:
-  std::vector<NameAssoc> names_;
-};
-
-class IndirectNameMapEntry : public NameMap {
- public:
-  // For performance reasons, {IndirectNameMapEntry} should not be copied.
-  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(IndirectNameMapEntry);
-
-  IndirectNameMapEntry(int index, std::vector<NameAssoc> names)
-      : NameMap(std::move(names)), index_(index) {}
-
-  int index() const { return index_; }
-
-  struct IndexLess {
-    bool operator()(const IndirectNameMapEntry& a,
-                    const IndirectNameMapEntry& b) const {
-      return a.index() < b.index();
+  struct FunctionIndexLess {
+    bool operator()(const LocalNamesPerFunction& a,
+                    const LocalNamesPerFunction& b) const {
+      return a.function_index() < b.function_index();
     }
   };
 
  private:
-  int index_;
+  int function_index_;
+  std::vector<LocalName> names_;
 };
 
-class IndirectNameMap {
+class LocalNames {
  public:
-  // For performance reasons, {IndirectNameMap} should not be copied.
-  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(IndirectNameMap);
+  // For performance reasons, {LocalNames} should not be copied.
+  MOVE_ONLY_NO_DEFAULT_CONSTRUCTOR(LocalNames);
 
-  explicit IndirectNameMap(std::vector<IndirectNameMapEntry> functions)
+  explicit LocalNames(std::vector<LocalNamesPerFunction> functions)
       : functions_(std::move(functions)) {
     DCHECK(std::is_sorted(functions_.begin(), functions_.end(),
-                          IndirectNameMapEntry::IndexLess{}));
+                          LocalNamesPerFunction::FunctionIndexLess{}));
   }
 
   WireBytesRef GetName(int function_index, int local_index) {
     auto it = std::lower_bound(functions_.begin(), functions_.end(),
-                               IndirectNameMapEntry{function_index, {}},
-                               IndirectNameMapEntry::IndexLess{});
+                               LocalNamesPerFunction{function_index, {}},
+                               LocalNamesPerFunction::FunctionIndexLess{});
     if (it == functions_.end()) return {};
-    if (it->index() != function_index) return {};
+    if (it->function_index() != function_index) return {};
     return it->GetName(local_index);
   }
 
  private:
-  std::vector<IndirectNameMapEntry> functions_;
+  std::vector<LocalNamesPerFunction> functions_;
 };
 
 enum class DecodingMethod {
@@ -195,14 +179,18 @@ void DecodeFunctionNames(const byte* module_start, const byte* module_end,
                          std::unordered_map<uint32_t, WireBytesRef>* names,
                          const Vector<const WasmExport> export_table);
 
-// Decode the requested subsection of the name section.
+// Decode the global or memory names from import table and export table. Returns
+// the result as an unordered map.
+void GenerateNamesFromImportsAndExports(
+    ImportExportKindCode kind, const Vector<const WasmImport> import_table,
+    const Vector<const WasmExport> export_table,
+    std::unordered_map<uint32_t, std::pair<WireBytesRef, WireBytesRef>>* names);
+
+// Decode the local names assignment from the name section.
 // The result will be empty if no name section is present. On encountering an
 // error in the name section, returns all information decoded up to the first
 // error.
-NameMap DecodeNameMap(Vector<const uint8_t> module_bytes,
-                      uint8_t name_section_kind);
-IndirectNameMap DecodeIndirectNameMap(Vector<const uint8_t> module_bytes,
-                                      uint8_t name_section_kind);
+LocalNames DecodeLocalNames(Vector<const uint8_t> module_bytes);
 
 class ModuleDecoderImpl;
 

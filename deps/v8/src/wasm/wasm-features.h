@@ -2,10 +2,6 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#if !V8_ENABLE_WEBASSEMBLY
-#error This header should only be included if WebAssembly is enabled.
-#endif  // !V8_ENABLE_WEBASSEMBLY
-
 #ifndef V8_WASM_WASM_FEATURES_H_
 #define V8_WASM_WASM_FEATURES_H_
 
@@ -39,7 +35,7 @@ class WasmFeatures : public base::EnumSet<WasmFeature> {
 
   // Simplified getters. Use {has_foo()} instead of {contains(kFeature_foo)}.
 #define DECL_FEATURE_GETTER(feat, ...) \
-  constexpr bool has_##feat() const { return contains(kFeature_##feat); }
+  bool has_##feat() const { return contains(kFeature_##feat); }
   FOREACH_WASM_FEATURE(DECL_FEATURE_GETTER)
 #undef DECL_FEATURE_GETTER
 

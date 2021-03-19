@@ -70,6 +70,8 @@ void InvokeScavenge(Isolate* isolate = nullptr);
 
 void InvokeMarkSweep(Isolate* isolate = nullptr);
 
+void EnsureFlagLocalHeapsEnabled();
+
 void GrowNewSpace(Heap* heap);
 
 void GrowNewSpaceToMaximumCapacity(Heap* heap);

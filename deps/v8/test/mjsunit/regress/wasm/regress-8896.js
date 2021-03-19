@@ -3,8 +3,6 @@
 // found in the LICENSE file.
 
 // Flags: --experimental-wasm-eh --allow-natives-syntax
-// Disable Liftoff so we can serialize the module.
-// Flags: --no-liftoff
 
 load("test/mjsunit/wasm/wasm-module-builder.js");
 

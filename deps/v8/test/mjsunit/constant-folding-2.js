@@ -27,7 +27,7 @@
 
 
 // Flags: --allow-natives-syntax --nostress-opt --opt
-// Flags: --no-stress-flush-bytecode --no-lazy-feedback-allocation
+// Flags: --no-stress-flush-bytecode
 
 function test(f, iterations) {
   %PrepareFunctionForOptimization(f);

@@ -184,23 +184,6 @@ std::string Type::GetGeneratedTNodeTypeName() const {
   return result;
 }
 
-std::string AbstractType::GetGeneratedTypeNameImpl() const {
-  // A special case that is not very well represented by the "generates"
-  // syntax in the .tq files: Lazy<T> represents a std::function that
-  // produces a TNode of the wrapped type.
-  if (base::Optional<const Type*> type_wrapped_in_lazy =
-          Type::MatchUnaryGeneric(this, TypeOracle::GetLazyGeneric())) {
-    DCHECK(!IsConstexpr());
-    return "std::function<" + (*type_wrapped_in_lazy)->GetGeneratedTypeName() +
-           "()>";
-  }
-
-  if (generated_type_.empty()) {
-    return parent()->GetGeneratedTypeName();
-  }
-  return IsConstexpr() ? generated_type_ : "TNode<" + generated_type_ + ">";
-}
-
 std::string AbstractType::GetGeneratedTNodeTypeNameImpl() const {
   if (generated_type_.empty()) return parent()->GetGeneratedTNodeTypeName();
   return generated_type_;
@@ -743,16 +726,12 @@ void ClassType::GenerateAccessors() {
       continue;
     }
 
-    // An explicit index is only used for indexed fields not marked as optional.
-    // Optional fields implicitly load or store item zero.
-    bool use_index = field.index && !field.index->optional;
-
     // Load accessor
     std::string load_macro_name = "Load" + this->name() + camel_field_name;
     Signature load_signature;
     load_signature.parameter_names.push_back(MakeNode<Identifier>("o"));
     load_signature.parameter_types.types.push_back(this);
-    if (use_index) {
+    if (field.index) {
       load_signature.parameter_names.push_back(MakeNode<Identifier>("i"));
       load_signature.parameter_types.types.push_back(
           TypeOracle::GetIntPtrType());
@@ -762,7 +741,7 @@ void ClassType::GenerateAccessors() {
 
     Expression* load_expression =
         MakeFieldAccessExpression(parameter, field.name_and_type.name);
-    if (use_index) {
+    if (field.index) {
       load_expression =
           MakeNode<ElementAccessExpression>(load_expression, index);
     }
@@ -777,7 +756,7 @@ void ClassType::GenerateAccessors() {
       Signature store_signature;
       store_signature.parameter_names.push_back(MakeNode<Identifier>("o"));
       store_signature.parameter_types.types.push_back(this);
-      if (use_index) {
+      if (field.index) {
         store_signature.parameter_names.push_back(MakeNode<Identifier>("i"));
         store_signature.parameter_types.types.push_back(
             TypeOracle::GetIntPtrType());
@@ -789,7 +768,7 @@ void ClassType::GenerateAccessors() {
       store_signature.return_type = TypeOracle::GetVoidType();
       Expression* store_expression =
           MakeFieldAccessExpression(parameter, field.name_and_type.name);
-      if (use_index) {
+      if (field.index) {
         store_expression =
             MakeNode<ElementAccessExpression>(store_expression, index);
       }
@@ -810,23 +789,23 @@ void ClassType::GenerateSliceAccessor(size_t field_index) {
   //
   // If the field has a known offset (in this example, 16):
   // FieldSliceClassNameFieldName(o: ClassName) {
-  //   return torque_internal::unsafe::New{Const,Mutable}Slice<FieldType>(
-  //     /*object:*/ o,
-  //     /*offset:*/ 16,
-  //     /*length:*/ torque_internal::%IndexedFieldLength<ClassName>(
-  //                     o, "field_name")
+  //     return torque_internal::unsafe::New{Const,Mutable}Slice<FieldType>(
+  //     object: o,
+  //     offset: 16,
+  //     length: torque_internal::%IndexedFieldLength<ClassName>(
+  //                 o, "field_name")
   //   );
   // }
   //
   // If the field has an unknown offset, and the previous field is named p, and
   // an item in the previous field has size 4:
   // FieldSliceClassNameFieldName(o: ClassName) {
-  //   const previous = %FieldSlice<ClassName>(o, "p");
-  //   return torque_internal::unsafe::New{Const,Mutable}Slice<FieldType>(
-  //     /*object:*/ o,
-  //     /*offset:*/ previous.offset + 4 * previous.length,
-  //     /*length:*/ torque_internal::%IndexedFieldLength<ClassName>(
-  //                     o, "field_name")
+  //   const previous = &o.p;
+  //     return torque_internal::unsafe::New{Const,Mutable}Slice<FieldType>(
+  //     object: o,
+  //     offset: previous.offset + 4 * previous.length,
+  //     length: torque_internal::%IndexedFieldLength<ClassName>(
+  //                 o, "field_name")
   //   );
   // }
   const Field& field = fields_[field_index];
@@ -853,14 +832,14 @@ void ClassType::GenerateSliceAccessor(size_t field_index) {
     const Field* previous = GetFieldPreceding(field_index);
     DCHECK_NOT_NULL(previous);
 
-    // %FieldSlice<ClassName>(o, "p")
-    Expression* previous_expression = MakeCallExpression(
-        MakeIdentifierExpression({"torque_internal"}, "%FieldSlice",
-                                 {MakeNode<PrecomputedTypeExpression>(this)}),
-        {parameter, MakeNode<StringLiteralExpression>(
-                        StringLiteralQuote(previous->name_and_type.name))});
+    // o.p
+    Expression* previous_expression =
+        MakeFieldAccessExpression(parameter, previous->name_and_type.name);
 
-    // const previous = %FieldSlice<ClassName>(o, "p");
+    // &o.p
+    previous_expression = MakeCallExpression("&", {previous_expression});
+
+    // const previous = &o.p;
     Statement* define_previous =
         MakeConstDeclarationStatement("previous", previous_expression);
     statements.push_back(define_previous);
@@ -900,10 +879,10 @@ void ClassType::GenerateSliceAccessor(size_t field_index) {
                       StringLiteralQuote(field.name_and_type.name))});
 
   // torque_internal::unsafe::New{Const,Mutable}Slice<FieldType>(
-  //   /*object:*/ o,
-  //   /*offset:*/ <<offset_expression>>,
-  //   /*length:*/ torque_internal::%IndexedFieldLength<ClassName>(
-  //                   o, "field_name")
+  //   object: o,
+  //   offset: <<offset_expression>>,
+  //   length: torque_internal::%IndexedFieldLength<ClassName>(
+  //               o, "field_name")
   // )
   IdentifierExpression* new_struct = MakeIdentifierExpression(
       {"torque_internal", "unsafe"},
@@ -1316,26 +1295,6 @@ std::string Type::GetRuntimeType() const {
       if (!first) result << ", ";
       first = false;
       result << field_type->GetRuntimeType();
-    }
-    result << ">";
-    return result.str();
-  }
-  return ConstexprVersion()->GetGeneratedTypeName();
-}
-
-std::string Type::GetDebugType() const {
-  if (IsSubtypeOf(TypeOracle::GetSmiType())) return "uintptr_t";
-  if (IsSubtypeOf(TypeOracle::GetTaggedType())) {
-    return "uintptr_t";
-  }
-  if (base::Optional<const StructType*> struct_type = StructSupertype()) {
-    std::stringstream result;
-    result << "std::tuple<";
-    bool first = true;
-    for (const Type* field_type : LowerType(*struct_type)) {
-      if (!first) result << ", ";
-      first = false;
-      result << field_type->GetDebugType();
     }
     result << ">";
     return result.str();

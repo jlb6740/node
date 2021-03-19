@@ -80,9 +80,8 @@ async function printLocalScope(frame) {
     if (scope.type != 'local') continue;
     let properties = await Protocol.Runtime.getProperties(
         {'objectId': scope.object.objectId});
-    for (let {name, value} of properties.result.result) {
-      value = await WasmInspectorTest.getWasmValue(value);
-      InspectorTest.log(`   ${name}: ${value}`);
+    for (let value of properties.result.result) {
+      InspectorTest.log(`   ${value.name}: ${value.value.value}`);
     }
   }
 }

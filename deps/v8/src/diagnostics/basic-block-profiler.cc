@@ -60,7 +60,7 @@ Handle<String> CopyStringToJSHeap(const std::string& source, Isolate* isolate) {
 }
 
 constexpr int kBlockIdSlotSize = kInt32Size;
-constexpr int kBlockCountSlotSize = kInt32Size;
+constexpr int kBlockCountSlotSize = kDoubleSize;
 }  // namespace
 
 BasicBlockProfilerData::BasicBlockProfilerData(
@@ -81,7 +81,8 @@ void BasicBlockProfilerData::CopyFromJSHeap(
   code_ = js_heap_data.code().ToCString().get();
   ByteArray counts(js_heap_data.counts());
   for (int i = 0; i < counts.length() / kBlockCountSlotSize; ++i) {
-    counts_.push_back(counts.get_uint32(i));
+    counts_.push_back(
+        reinterpret_cast<double*>(counts.GetDataStartAddress())[i]);
   }
   ByteArray block_ids(js_heap_data.block_ids());
   for (int i = 0; i < block_ids.length() / kBlockIdSlotSize; ++i) {
@@ -111,7 +112,7 @@ Handle<OnHeapBasicBlockProfilerData> BasicBlockProfilerData::CopyToJSHeap(
   Handle<ByteArray> counts = isolate->factory()->NewByteArray(
       counts_array_size_in_bytes, AllocationType::kOld);
   for (int i = 0; i < static_cast<int>(n_blocks()); ++i) {
-    counts->set_uint32(i, counts_[i]);
+    reinterpret_cast<double*>(counts->GetDataStartAddress())[i] = counts_[i];
   }
   Handle<String> name = CopyStringToJSHeap(function_name_, isolate);
   Handle<String> schedule = CopyStringToJSHeap(schedule_, isolate);
@@ -132,7 +133,7 @@ void BasicBlockProfiler::ResetCounts(Isolate* isolate) {
     Handle<ByteArray> counts(
         OnHeapBasicBlockProfilerData::cast(list->Get(i)).counts(), isolate);
     for (int j = 0; j < counts->length() / kBlockCountSlotSize; ++j) {
-      counts->set_uint32(j, 0);
+      reinterpret_cast<double*>(counts->GetDataStartAddress())[j] = 0;
     }
   }
 }
@@ -196,11 +197,9 @@ void BasicBlockProfilerData::Log(Isolate* isolate) {
 }
 
 std::ostream& operator<<(std::ostream& os, const BasicBlockProfilerData& d) {
-  if (std::all_of(d.counts_.cbegin(), d.counts_.cend(),
-                  [](uint32_t count) { return count == 0; })) {
-    // No data was collected for this function.
-    return os;
-  }
+  double block_count_sum =
+      std::accumulate(d.counts_.begin(), d.counts_.end(), 0);
+  if (block_count_sum == 0) return os;
   const char* name = "unknown function";
   if (!d.function_name_.empty()) {
     name = d.function_name_.c_str();
@@ -211,14 +210,14 @@ std::ostream& operator<<(std::ostream& os, const BasicBlockProfilerData& d) {
     os << d.schedule_.c_str() << std::endl;
   }
   os << "block counts for " << name << ":" << std::endl;
-  std::vector<std::pair<size_t, uint32_t>> pairs;
+  std::vector<std::pair<size_t, double>> pairs;
   pairs.reserve(d.n_blocks());
   for (size_t i = 0; i < d.n_blocks(); ++i) {
     pairs.push_back(std::make_pair(i, d.counts_[i]));
   }
   std::sort(
       pairs.begin(), pairs.end(),
-      [=](std::pair<size_t, uint32_t> left, std::pair<size_t, uint32_t> right) {
+      [=](std::pair<size_t, double> left, std::pair<size_t, double> right) {
         if (right.second == left.second) return left.first < right.first;
         return right.second < left.second;
       });

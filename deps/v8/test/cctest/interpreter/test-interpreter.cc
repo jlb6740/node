@@ -4,13 +4,14 @@
 
 #include <tuple>
 
+#include "src/init/v8.h"
+
 #include "src/api/api-inl.h"
 #include "src/base/overflowing-math.h"
 #include "src/codegen/compiler.h"
 #include "src/execution/execution.h"
 #include "src/handles/handles.h"
 #include "src/heap/heap-inl.h"
-#include "src/init/v8.h"
 #include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-flags.h"
@@ -1721,20 +1722,18 @@ TEST(InterpreterJumpConstantWith16BitOperand) {
 
   ast_factory.Internalize(isolate);
   Handle<BytecodeArray> bytecode_array = builder.ToBytecodeArray(isolate);
-  {
-    BytecodeArrayIterator iterator(bytecode_array);
+  BytecodeArrayIterator iterator(bytecode_array);
 
-    bool found_16bit_constant_jump = false;
-    while (!iterator.done()) {
-      if (iterator.current_bytecode() == Bytecode::kJumpConstant &&
-          iterator.current_operand_scale() == OperandScale::kDouble) {
-        found_16bit_constant_jump = true;
-        break;
-      }
-      iterator.Advance();
+  bool found_16bit_constant_jump = false;
+  while (!iterator.done()) {
+    if (iterator.current_bytecode() == Bytecode::kJumpConstant &&
+        iterator.current_operand_scale() == OperandScale::kDouble) {
+      found_16bit_constant_jump = true;
+      break;
     }
-    CHECK(found_16bit_constant_jump);
+    iterator.Advance();
   }
+  CHECK(found_16bit_constant_jump);
 
   InterpreterTester tester(isolate, bytecode_array, metadata);
   auto callable = tester.GetCallable<>();
@@ -1767,20 +1766,19 @@ TEST(InterpreterJumpWith32BitOperand) {
 
   ast_factory.Internalize(isolate);
   Handle<BytecodeArray> bytecode_array = builder.ToBytecodeArray(isolate);
-  {
-    BytecodeArrayIterator iterator(bytecode_array);
 
-    bool found_32bit_jump = false;
-    while (!iterator.done()) {
-      if (iterator.current_bytecode() == Bytecode::kJump &&
-          iterator.current_operand_scale() == OperandScale::kQuadruple) {
-        found_32bit_jump = true;
-        break;
-      }
-      iterator.Advance();
+  BytecodeArrayIterator iterator(bytecode_array);
+
+  bool found_32bit_jump = false;
+  while (!iterator.done()) {
+    if (iterator.current_bytecode() == Bytecode::kJump &&
+        iterator.current_operand_scale() == OperandScale::kQuadruple) {
+      found_32bit_jump = true;
+      break;
     }
-    CHECK(found_32bit_jump);
+    iterator.Advance();
   }
+  CHECK(found_32bit_jump);
 
   InterpreterTester tester(isolate, bytecode_array);
   auto callable = tester.GetCallable<>();
@@ -2354,6 +2352,7 @@ TEST(InterpreterUnaryNot) {
     bool expected_value = ((i & 1) == 1);
     BytecodeArrayBuilder builder(zone, 1, 0);
 
+    Register r0(0);
     builder.LoadFalse();
     for (size_t j = 0; j < i; j++) {
       builder.LogicalNot(ToBooleanMode::kAlreadyBoolean);
@@ -2391,6 +2390,7 @@ TEST(InterpreterUnaryNotNonBoolean) {
   for (size_t i = 0; i < arraysize(object_type_tuples); i++) {
     BytecodeArrayBuilder builder(zone, 1, 0);
 
+    Register r0(0);
     LoadLiteralForTest(&builder, object_type_tuples[i].first);
     builder.LogicalNot(ToBooleanMode::kConvertToBoolean).Return();
     Handle<BytecodeArray> bytecode_array = builder.ToBytecodeArray(isolate);

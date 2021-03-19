@@ -48,7 +48,7 @@
 
   // Assert that the function was deoptimized (dependency to the constant
   // value).
-  assertUnoptimized(C.prototype.foo);
+  assertFalse(isOptimized(C.prototype.foo));
 })();
 
 (function TestSuperpropertyAccessInlined() {

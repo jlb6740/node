@@ -15,10 +15,8 @@ assertThrows(() => new RegExp("((a*)*)*\1", "l"), SyntaxError)
 assertFalse(RegExp.prototype.hasOwnProperty('linear'));
 assertFalse(/123/.hasOwnProperty('linear'));
 
-// Redefined .linear shouldn't reflect in flags without
-// --enable-experimental-regexp-engine.
 {
   let re = /./;
-  Object.defineProperty(re, "linear", { get: function() { return true; } });
+  re.linear = true;
   assertEquals("", re.flags);
 }

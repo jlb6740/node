@@ -3856,7 +3856,6 @@ LogicVRegister Simulator::fcvtn(VectorFormat vform, LogicVRegister dst,
       dst.SetFloat(i, FPToFloat(src.Float<double>(i), FPTieEven));
     }
   }
-  dst.ClearForWrite(vform);
   return dst;
 }
 

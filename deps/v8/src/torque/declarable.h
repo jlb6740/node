@@ -36,8 +36,6 @@ struct QualifiedName {
   explicit QualifiedName(std::string name)
       : QualifiedName({}, std::move(name)) {}
 
-  static QualifiedName Parse(std::string qualified_name);
-
   bool HasNamespaceQualification() const {
     return !namespace_qualification.empty();
   }
@@ -296,7 +294,6 @@ class ExternConstant : public Value {
 enum class OutputType {
   kCSA,
   kCC,
-  kCCDebug,
 };
 
 class Callable : public Scope {
@@ -332,21 +329,9 @@ class Callable : public Scope {
     return "TqRuntime" + name;
   }
 
-  static std::string PrefixNameForCCDebugOutput(const std::string& name) {
-    // If a Torque macro requires a C++ runtime function to be generated, then
-    // the generated function begins with this prefix to avoid any naming
-    // collisions with the generated CSA function for the same macro.
-    return "TqDebug" + name;
-  }
-
   // Name to use in runtime C++ code.
   virtual std::string CCName() const {
     return PrefixNameForCCOutput(ExternalName());
-  }
-
-  // Name to use in debug C++ code.
-  virtual std::string CCDebugName() const {
-    return PrefixNameForCCDebugOutput(ExternalName());
   }
 
  protected:
@@ -418,11 +403,6 @@ class ExternMacro : public Macro {
            "::" + ExternalName();
   }
 
-  std::string CCDebugName() const override {
-    return "TorqueDebugMacroShims::" + external_assembler_name() +
-           "::" + ExternalName();
-  }
-
  private:
   friend class Declarations;
   ExternMacro(const std::string& name, std::string external_assembler_name,
@@ -443,12 +423,6 @@ class TorqueMacro : public Macro {
     // prefer those wherever possible.
     return PrefixNameForCCOutput(IsExportedToCSA() ? ReadableName()
                                                    : ExternalName());
-  }
-  std::string CCDebugName() const override {
-    // Exported functions must have unique and C++-friendly readable names, so
-    // prefer those wherever possible.
-    return PrefixNameForCCDebugOutput(IsExportedToCSA() ? ReadableName()
-                                                        : ExternalName());
   }
 
  protected:

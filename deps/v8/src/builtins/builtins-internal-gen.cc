@@ -3,7 +3,6 @@
 // found in the LICENSE file.
 
 #include "src/api/api.h"
-#include "src/baseline/baseline.h"
 #include "src/builtins/builtins-utils-gen.h"
 #include "src/builtins/builtins.h"
 #include "src/codegen/code-stub-assembler.h"
@@ -312,9 +311,6 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
   Label incremental_wb(this);
   Label exit(this);
 
-  // In this method we limit the allocatable registers so we have to use
-  // UncheckedParameter. Parameter does not work because the checked cast needs
-  // more registers.
   auto remembered_set = UncheckedParameter<Smi>(Descriptor::kRememberedSet);
   Branch(ShouldEmitRememberSet(remembered_set), &generational_wb,
          &incremental_wb);
@@ -336,7 +332,8 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
     BIND(&test_old_to_young_flags);
     {
       // TODO(ishell): do a new-space range check instead.
-      TNode<IntPtrT> value = BitcastTaggedToWord(Load<HeapObject>(slot));
+      TNode<IntPtrT> value =
+          BitcastTaggedToWord(Load(MachineType::TaggedPointer(), slot));
 
       // TODO(albertnetymk): Try to cache the page flag for value and object,
       // instead of calling IsPageFlagSet each time.
@@ -345,7 +342,7 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
       GotoIfNot(value_is_young, &incremental_wb);
 
       TNode<IntPtrT> object =
-          BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+          BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
       TNode<BoolT> object_is_young =
           IsPageFlagSet(object, MemoryChunk::kIsInYoungGenerationMask);
       Branch(object_is_young, &incremental_wb, &store_buffer_incremental_wb);
@@ -355,7 +352,7 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
     {
       auto fp_mode = UncheckedParameter<Smi>(Descriptor::kFPMode);
       TNode<IntPtrT> object =
-          BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+          BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
       InsertIntoRememberedSetAndGoto(object, slot, fp_mode, &exit);
     }
 
@@ -363,7 +360,7 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
     {
       auto fp_mode = UncheckedParameter<Smi>(Descriptor::kFPMode);
       TNode<IntPtrT> object =
-          BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+          BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
       InsertIntoRememberedSetAndGoto(object, slot, fp_mode, &incremental_wb);
     }
   }
@@ -373,7 +370,8 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
     Label call_incremental_wb(this);
 
     auto slot = UncheckedParameter<IntPtrT>(Descriptor::kSlot);
-    TNode<IntPtrT> value = BitcastTaggedToWord(Load<HeapObject>(slot));
+    TNode<IntPtrT> value =
+        BitcastTaggedToWord(Load(MachineType::TaggedPointer(), slot));
 
     // There are two cases we need to call incremental write barrier.
     // 1) value_is_white
@@ -385,7 +383,7 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
               &exit);
 
     TNode<IntPtrT> object =
-        BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+        BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
     Branch(
         IsPageFlagSet(object, MemoryChunk::kSkipEvacuationSlotsRecordingMask),
         &exit, &call_incremental_wb);
@@ -396,7 +394,7 @@ TF_BUILTIN(RecordWrite, RecordWriteCodeStubAssembler) {
           ExternalReference::write_barrier_marking_from_code_function());
       auto fp_mode = UncheckedParameter<Smi>(Descriptor::kFPMode);
       TNode<IntPtrT> object =
-          BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+          BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
       CallCFunction2WithCallerSavedRegistersMode<Int32T, IntPtrT, IntPtrT>(
           function, object, slot, fp_mode, &exit);
     }
@@ -414,12 +412,9 @@ TF_BUILTIN(EphemeronKeyBarrier, RecordWriteCodeStubAssembler) {
       ExternalReference::ephemeron_key_write_barrier_function());
   TNode<ExternalReference> isolate_constant =
       ExternalConstant(ExternalReference::isolate_address(isolate()));
-  // In this method we limit the allocatable registers so we have to use
-  // UncheckedParameter. Parameter does not work because the checked cast needs
-  // more registers.
   auto address = UncheckedParameter<IntPtrT>(Descriptor::kSlotAddress);
   TNode<IntPtrT> object =
-      BitcastTaggedToWord(UncheckedParameter<Object>(Descriptor::kObject));
+      BitcastTaggedToWord(UntypedParameter(Descriptor::kObject));
   TNode<Smi> fp_mode = UncheckedParameter<Smi>(Descriptor::kFPMode);
   CallCFunction3WithCallerSavedRegistersMode<Int32T, IntPtrT, IntPtrT,
                                              ExternalReference>(
@@ -492,7 +487,7 @@ TF_BUILTIN(DeleteProperty, DeletePropertyBaseAssembler) {
       if_notfound(this), slow(this), if_proxy(this);
 
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    // TODO(v8:11167) remove once SwissNameDictionary supported.
+    // TODO(v8:11167) remove once OrderedNameDictionary supported.
     GotoIf(Int32TrueConstant(), &slow);
   }
 
@@ -692,20 +687,6 @@ TF_BUILTIN(ForInEnumerate, CodeStubAssembler) {
   TailCallRuntime(Runtime::kForInEnumerate, context, receiver);
 }
 
-TF_BUILTIN(ForInPrepare, CodeStubAssembler) {
-  // The {enumerator} is either a Map or a FixedArray.
-  auto enumerator = Parameter<HeapObject>(Descriptor::kEnumerator);
-  auto index = Parameter<TaggedIndex>(Descriptor::kVectorIndex);
-  auto feedback_vector = Parameter<FeedbackVector>(Descriptor::kFeedbackVector);
-  TNode<UintPtrT> vector_index = Unsigned(TaggedIndexToIntPtr(index));
-
-  TNode<FixedArray> cache_array;
-  TNode<Smi> cache_length;
-  ForInPrepare(enumerator, vector_index, feedback_vector, &cache_array,
-               &cache_length, UpdateFeedbackMode::kGuaranteedFeedback);
-  Return(cache_array, cache_length);
-}
-
 TF_BUILTIN(ForInFilter, CodeStubAssembler) {
   auto key = Parameter<String>(Descriptor::kKey);
   auto object = Parameter<HeapObject>(Descriptor::kObject);
@@ -769,6 +750,7 @@ TF_BUILTIN(AdaptorWithBuiltinExitFrame, CodeStubAssembler) {
 
   TVARIABLE(Int32T, pushed_argc, actual_argc);
 
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   TNode<SharedFunctionInfo> shared = LoadJSFunctionSharedFunctionInfo(target);
 
   TNode<Int32T> formal_count =
@@ -788,6 +770,7 @@ TF_BUILTIN(AdaptorWithBuiltinExitFrame, CodeStubAssembler) {
   pushed_argc = formal_count;
   Goto(&done_argc);
   BIND(&done_argc);
+#endif
 
   // Update arguments count for CEntry to contain the number of arguments
   // including the receiver and the extra arguments.
@@ -928,29 +911,6 @@ void Builtins::Generate_MemMove(MacroAssembler* masm) {
 }
 #endif  // V8_TARGET_ARCH_IA32
 
-// TODO(v8:11421): Remove #if once baseline compiler is ported to other
-// architectures.
-#if V8_TARGET_ARCH_IA32 || V8_TARGET_ARCH_X64 || V8_TARGET_ARCH_ARM64 || \
-    V8_TARGET_ARCH_ARM
-void Builtins::Generate_BaselineLeaveFrame(MacroAssembler* masm) {
-  EmitReturnBaseline(masm);
-}
-#else
-// Stub out implementations of arch-specific baseline builtins.
-void Builtins::Generate_BaselineOutOfLinePrologue(MacroAssembler* masm) {
-  masm->Trap();
-}
-void Builtins::Generate_BaselineLeaveFrame(MacroAssembler* masm) {
-  masm->Trap();
-}
-void Builtins::Generate_BaselineOnStackReplacement(MacroAssembler* masm) {
-  masm->Trap();
-}
-void Builtins::Generate_TailCallOptimizedCodeSlot(MacroAssembler* masm) {
-  masm->Trap();
-}
-#endif
-
 // ES6 [[Get]] operation.
 TF_BUILTIN(GetProperty, CodeStubAssembler) {
   auto object = Parameter<Object>(Descriptor::kObject);
@@ -962,7 +922,7 @@ TF_BUILTIN(GetProperty, CodeStubAssembler) {
       if_slow(this, Label::kDeferred);
 
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    // TODO(v8:11167) remove once SwissNameDictionary supported.
+    // TODO(v8:11167) remove once OrderedNameDictionary supported.
     GotoIf(Int32TrueConstant(), &if_slow);
   }
 
@@ -1022,7 +982,7 @@ TF_BUILTIN(GetPropertyWithReceiver, CodeStubAssembler) {
       if_slow(this, Label::kDeferred);
 
   if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-    // TODO(v8:11167) remove once SwissNameDictionary supported.
+    // TODO(v8:11167) remove once OrderedNameDictionary supported.
     GotoIf(Int32TrueConstant(), &if_slow);
   }
 
@@ -1129,6 +1089,7 @@ TF_BUILTIN(InstantiateAsmJs, CodeStubAssembler) {
       Runtime::kInstantiateAsmJs, context, function, stdlib, foreign, heap);
   GotoIf(TaggedIsSmi(maybe_result_or_smi_zero), &tailcall_to_function);
 
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   TNode<SharedFunctionInfo> shared = LoadJSFunctionSharedFunctionInfo(function);
   TNode<Int32T> parameter_count =
       UncheckedCast<Int32T>(LoadSharedFunctionInfoFormalParameterCount(shared));
@@ -1142,6 +1103,7 @@ TF_BUILTIN(InstantiateAsmJs, CodeStubAssembler) {
   PopAndReturn(Int32Add(parameter_count, Int32Constant(1)),
                maybe_result_or_smi_zero);
   BIND(&argc_ge_param_count);
+#endif
   args.PopAndReturn(maybe_result_or_smi_zero);
 
   BIND(&tailcall_to_function);

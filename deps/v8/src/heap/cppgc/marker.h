@@ -30,9 +30,9 @@ class MarkerFactory;
 // phase:
 // 1. StartMarking() [Called implicitly when creating a Marker using
 //                    MarkerFactory]
-// 2. AdvanceMarkingWithLimits() [Optional, depending on environment.]
+// 2. AdvanceMarkingWithDeadline() [Optional, depending on environment.]
 // 3. EnterAtomicPause()
-// 4. AdvanceMarkingWithLimits()
+// 4. AdvanceMarkingWithDeadline()
 // 5. LeaveAtomicPause()
 //
 // Alternatively, FinishMarking combines steps 3.-5.
@@ -69,14 +69,10 @@ class V8_EXPORT_PRIVATE MarkerBase {
   // - Updates the MarkingConfig if the stack state has changed;
   void EnterAtomicPause(MarkingConfig::StackState);
 
-  // Makes marking progress.  A `marked_bytes_limit` of 0 means that the limit
-  // is determined by the internal marking scheduler.
-  //
+  // Makes marking progress.
   // TODO(chromium:1056170): Remove TimeDelta argument when unified heap no
   // longer uses it.
-  bool AdvanceMarkingWithLimits(
-      v8::base::TimeDelta = kMaximumIncrementalStepDuration,
-      size_t marked_bytes_limit = 0);
+  bool AdvanceMarkingWithMaxDuration(v8::base::TimeDelta);
 
   // Makes marking progress when allocation a new lab.
   void AdvanceMarkingOnAllocation();
@@ -87,7 +83,7 @@ class V8_EXPORT_PRIVATE MarkerBase {
 
   // Combines:
   // - EnterAtomicPause()
-  // - AdvanceMarkingWithLimits()
+  // - AdvanceMarkingWithDeadline()
   // - ProcessWeakness()
   // - LeaveAtomicPause()
   void FinishMarking(MarkingConfig::StackState);
@@ -125,13 +121,11 @@ class V8_EXPORT_PRIVATE MarkerBase {
     Handle handle_;
   };
 
-  void SetMainThreadMarkingDisabledForTesting(bool);
+  void DisableIncrementalMarkingForTesting();
 
   void WaitForConcurrentMarkingForTesting();
 
   void NotifyCompactionCancelled();
-
-  bool IsMarking() const { return is_marking_; }
 
  protected:
   static constexpr v8::base::TimeDelta kMaximumIncrementalStepDuration =
@@ -153,6 +147,12 @@ class V8_EXPORT_PRIVATE MarkerBase {
   virtual ConservativeTracingVisitor& conservative_visitor() = 0;
   virtual heap::base::StackVisitor& stack_visitor() = 0;
 
+  // Makes marking progress.
+  // TODO(chromium:1056170): Remove TimeDelta argument when unified heap no
+  // longer uses it.
+  bool AdvanceMarkingWithDeadline(
+      v8::base::TimeDelta = kMaximumIncrementalStepDuration);
+
   bool ProcessWorklistsWithDeadline(size_t, v8::base::TimeTicks);
 
   void VisitRoots(MarkingConfig::StackState);
@@ -172,13 +172,13 @@ class V8_EXPORT_PRIVATE MarkerBase {
 
   MarkingWorklists marking_worklists_;
   MutatorMarkingState mutator_marking_state_;
-  bool is_marking_{false};
+  bool is_marking_started_{false};
 
   IncrementalMarkingSchedule schedule_;
 
   std::unique_ptr<ConcurrentMarkerBase> concurrent_marker_{nullptr};
 
-  bool main_marking_disabled_for_testing_{false};
+  bool incremental_marking_disabled_for_testing_{false};
 
   friend class MarkerFactory;
 };

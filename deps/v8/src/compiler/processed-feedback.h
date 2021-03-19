@@ -246,7 +246,7 @@ class LiteralFeedback
 };
 
 class RegExpLiteralFeedback
-    : public SingleValueFeedback<RegExpBoilerplateDescriptionRef,
+    : public SingleValueFeedback<JSRegExpRef,
                                  ProcessedFeedback::kRegExpLiteral> {
   using SingleValueFeedback::SingleValueFeedback;
 };

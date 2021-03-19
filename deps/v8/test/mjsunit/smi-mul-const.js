@@ -50,7 +50,6 @@ function limit_range(a) {
   // Limit the range of 'a' to enable no-overflow optimizations.
   return Math.max(Math.min(a | 0, 10), -10);
 }
-%EnsureFeedbackVectorForFunction(limit_range);
 
 function mul_by_neg_127(a) { return limit_range(a) * -127; }
 function mul_by_neg_128(a) { return limit_range(a) * -128; }

@@ -73,7 +73,7 @@ LookupIterator::LookupIterator(Isolate* isolate, Handle<Object> receiver,
   if (IsElement()) {
     // If we're not looking at a TypedArray, we will need the key represented
     // as an internalized string.
-    if (index_ > JSObject::kMaxElementIndex &&
+    if (index_ > JSArray::kMaxArrayIndex &&
         !lookup_start_object->IsJSTypedArray()) {
       if (name_.is_null()) {
         name_ = isolate->factory()->SizeToString(index_);
@@ -85,7 +85,6 @@ LookupIterator::LookupIterator(Isolate* isolate, Handle<Object> receiver,
     }
     Start<true>();
   } else {
-    DCHECK(!name_.is_null());
     name_ = isolate->factory()->InternalizeName(name_);
 #ifdef DEBUG
     // Assert that the name is not an index.
@@ -107,9 +106,7 @@ LookupIterator::LookupIterator(Isolate* isolate, Handle<Object> receiver,
 LookupIterator::Key::Key(Isolate* isolate, double index) {
   DCHECK_EQ(index, static_cast<uint64_t>(index));
 #if V8_TARGET_ARCH_32_BIT
-  if (index <= JSObject::kMaxElementIndex) {
-    STATIC_ASSERT(JSObject::kMaxElementIndex <=
-                  std::numeric_limits<size_t>::max());
+  if (index <= JSArray::kMaxArrayIndex) {
     index_ = static_cast<size_t>(index);
   } else {
     index_ = LookupIterator::kInvalidIndex;
@@ -168,7 +165,7 @@ Handle<Name> LookupIterator::GetName() {
 }
 
 bool LookupIterator::IsElement(JSReceiver object) const {
-  return index_ <= JSObject::kMaxElementIndex ||
+  return index_ <= JSArray::kMaxArrayIndex ||
          (index_ != kInvalidIndex && object.map().has_typed_array_elements());
 }
 
@@ -273,7 +270,7 @@ Handle<T> LookupIterator::GetStoreTarget() const {
 
 template <bool is_element>
 InterceptorInfo LookupIterator::GetInterceptor(JSObject holder) const {
-  if (is_element && index_ <= JSObject::kMaxElementIndex) {
+  if (is_element && index_ <= JSArray::kMaxArrayIndex) {
     return holder.GetIndexedInterceptor(isolate_);
   } else {
     return holder.GetNamedInterceptor(isolate_);

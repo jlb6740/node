@@ -12,13 +12,8 @@
 namespace cppgc {
 namespace internal {
 
-class CompactionWorklists final {
+class CompactionWorklists {
  public:
-  CompactionWorklists() = default;
-
-  CompactionWorklists(const CompactionWorklists&) = delete;
-  CompactionWorklists& operator=(const CompactionWorklists&) = delete;
-
   using MovableReference = const void*;
 
   using MovableReferencesWorklist =

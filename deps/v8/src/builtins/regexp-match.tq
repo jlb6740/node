@@ -108,7 +108,9 @@ transitioning macro RegExpPrototypeMatchBody(implicit context: Context)(
         // On the fast path, we can be certain that lastIndex can never be
         // incremented to overflow the Smi range since the maximal string
         // length is less than the maximal Smi value.
-        StaticAssertStringLengthFitsSmi();
+        const kMaxStringLengthFitsSmi: constexpr bool =
+            kStringMaxLengthUintptr < kSmiMaxValue;
+        static_assert(kMaxStringLengthFitsSmi);
         assert(TaggedIsPositiveSmi(newLastIndex));
       }
 

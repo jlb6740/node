@@ -305,11 +305,10 @@ int InstructionScheduler::GetInstructionFlags(const Instruction* instr) const {
 
     case kArchPrepareCallCFunction:
     case kArchPrepareTailCall:
+    case kArchTailCallCodeObjectFromJSFunction:
     case kArchTailCallCodeObject:
     case kArchTailCallAddress:
-#if V8_ENABLE_WEBASSEMBLY
     case kArchTailCallWasm:
-#endif  // V8_ENABLE_WEBASSEMBLY
     case kArchAbortCSAAssert:
       return kHasSideEffect;
 
@@ -323,9 +322,7 @@ int InstructionScheduler::GetInstructionFlags(const Instruction* instr) const {
     case kArchCallCFunction:
     case kArchCallCodeObject:
     case kArchCallJSFunction:
-#if V8_ENABLE_WEBASSEMBLY
     case kArchCallWasmFunction:
-#endif  // V8_ENABLE_WEBASSEMBLY
     case kArchCallBuiltinPointer:
       // Calls can cause GC and GC may relocate objects. If a pure instruction
       // operates on a tagged pointer that was cast to a word then it may be

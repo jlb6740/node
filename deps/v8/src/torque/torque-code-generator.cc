@@ -4,8 +4,6 @@
 
 #include "src/torque/torque-code-generator.h"
 
-#include "src/torque/global-context.h"
-
 namespace v8 {
 namespace internal {
 namespace torque {
@@ -33,11 +31,8 @@ void TorqueCodeGenerator::EmitInstruction(const Instruction& instruction,
 #endif
 
   switch (instruction.kind()) {
-#define ENUM_ITEM(T)                                  \
-  case InstructionKind::k##T:                         \
-    if (GlobalContext::annotate_ir()) {               \
-      EmitIRAnnotation(instruction.Cast<T>(), stack); \
-    }                                                 \
+#define ENUM_ITEM(T)          \
+  case InstructionKind::k##T: \
     return EmitInstruction(instruction.Cast<T>(), stack);
     TORQUE_INSTRUCTION_LIST(ENUM_ITEM)
 #undef ENUM_ITEM

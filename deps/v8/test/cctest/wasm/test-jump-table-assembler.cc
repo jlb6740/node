@@ -144,11 +144,6 @@ void CompileJumpTableThunk(Address thunk, Address jump_target) {
   __ lw(scratch, MemOperand(scratch, 0));
   __ Branch(&exit, ne, scratch, Operand(zero_reg));
   __ Jump(jump_target, RelocInfo::NONE);
-#elif V8_TARGET_ARCH_RISCV64
-  __ li(scratch, Operand(stop_bit_address, RelocInfo::NONE));
-  __ Lw(scratch, MemOperand(scratch, 0));
-  __ Branch(&exit, ne, scratch, Operand(zero_reg));
-  __ Jump(jump_target, RelocInfo::NONE);
 #else
 #error Unsupported architecture
 #endif
@@ -237,8 +232,7 @@ TEST(JumpTablePatchingStress) {
   constexpr int kNumberOfPatcherThreads = 3;
 
   STATIC_ASSERT(kAssemblerBufferSize >= kJumpTableSize);
-  auto buffer = AllocateAssemblerBuffer(kAssemblerBufferSize, nullptr,
-                                        VirtualMemory::kMapAsJittable);
+  auto buffer = AllocateAssemblerBuffer(kAssemblerBufferSize);
   byte* thunk_slot_buffer = buffer->start() + kBufferSlotStartOffset;
 
   std::bitset<kAvailableBufferSlots> used_thunk_slots;

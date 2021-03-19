@@ -19,6 +19,7 @@
 namespace v8 {
 namespace internal {
 
+using compiler::Node;
 template <class T>
 using TVariable = compiler::TypedCodeAssemblerVariable<T>;
 
@@ -910,7 +911,7 @@ TNode<IntPtrT> CollectionsBuiltinsAssembler::GetHash(
 
   BIND(&if_receiver);
   {
-    var_hash = LoadJSReceiverIdentityHash(CAST(key));
+    var_hash = LoadJSReceiverIdentityHash(key);
     Goto(&done);
   }
 
@@ -2722,7 +2723,7 @@ TF_BUILTIN(WeakMapLookupHashIndex, WeakCollectionsBuiltinsAssembler) {
 
   GotoIfNotJSReceiver(key, &if_not_found);
 
-  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(CAST(key), &if_not_found);
+  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(key, &if_not_found);
   TNode<IntPtrT> capacity = LoadTableCapacity(table);
   TNode<IntPtrT> key_index =
       FindKeyIndexForKey(table, key, hash, EntryMask(capacity), &if_not_found);
@@ -2787,7 +2788,7 @@ TF_BUILTIN(WeakCollectionDelete, WeakCollectionsBuiltinsAssembler) {
 
   GotoIfNotJSReceiver(key, &if_not_found);
 
-  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(CAST(key), &if_not_found);
+  TNode<IntPtrT> hash = LoadJSReceiverIdentityHash(key, &if_not_found);
   TNode<EphemeronHashTable> table = LoadTable(collection);
   TNode<IntPtrT> capacity = LoadTableCapacity(table);
   TNode<IntPtrT> key_index =

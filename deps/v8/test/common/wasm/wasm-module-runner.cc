@@ -49,33 +49,31 @@ OwnedVector<WasmValue> MakeDefaultInterpreterArguments(Isolate* isolate,
 
   for (size_t i = 0; i < param_count; ++i) {
     switch (sig->GetParam(i).kind()) {
-      case kI32:
+      case ValueType::kI32:
         arguments[i] = WasmValue(int32_t{0});
         break;
-      case kI64:
+      case ValueType::kI64:
         arguments[i] = WasmValue(int64_t{0});
         break;
-      case kF32:
+      case ValueType::kF32:
         arguments[i] = WasmValue(0.0f);
         break;
-      case kF64:
+      case ValueType::kF64:
         arguments[i] = WasmValue(0.0);
         break;
-      case kS128:
+      case ValueType::kS128:
         arguments[i] = WasmValue(Simd128{});
         break;
-      case kOptRef:
+      case ValueType::kOptRef:
         arguments[i] =
-            WasmValue(Handle<Object>::cast(isolate->factory()->null_value()),
-                      sig->GetParam(i));
+            WasmValue(Handle<Object>::cast(isolate->factory()->null_value()));
         break;
-      case kRef:
-      case kRtt:
-      case kRttWithDepth:
-      case kI8:
-      case kI16:
-      case kStmt:
-      case kBottom:
+      case ValueType::kRef:
+      case ValueType::kRtt:
+      case ValueType::kI8:
+      case ValueType::kI16:
+      case ValueType::kStmt:
+      case ValueType::kBottom:
         UNREACHABLE();
     }
   }
@@ -90,27 +88,26 @@ OwnedVector<Handle<Object>> MakeDefaultArguments(Isolate* isolate,
 
   for (size_t i = 0; i < param_count; ++i) {
     switch (sig->GetParam(i).kind()) {
-      case kI32:
-      case kF32:
-      case kF64:
-      case kS128:
+      case ValueType::kI32:
+      case ValueType::kF32:
+      case ValueType::kF64:
+      case ValueType::kS128:
         // Argument here for kS128 does not matter as we should error out before
         // hitting this case.
         arguments[i] = handle(Smi::zero(), isolate);
         break;
-      case kI64:
+      case ValueType::kI64:
         arguments[i] = BigInt::FromInt64(isolate, 0);
         break;
-      case kOptRef:
+      case ValueType::kOptRef:
         arguments[i] = isolate->factory()->null_value();
         break;
-      case kRef:
-      case kRtt:
-      case kRttWithDepth:
-      case kI8:
-      case kI16:
-      case kStmt:
-      case kBottom:
+      case ValueType::kRef:
+      case ValueType::kRtt:
+      case ValueType::kI8:
+      case ValueType::kI16:
+      case ValueType::kStmt:
+      case ValueType::kBottom:
         UNREACHABLE();
     }
   }
@@ -172,16 +169,16 @@ WasmInterpretationResult InterpretWasmModule(
     if (func->sig->return_count() > 0) {
       WasmValue return_value = interpreter.GetReturnValue();
       switch (func->sig->GetReturn(0).kind()) {
-        case kI32:
+        case ValueType::kI32:
           result = return_value.to<int32_t>();
           break;
-        case kI64:
+        case ValueType::kI64:
           result = static_cast<int32_t>(return_value.to<int64_t>());
           break;
-        case kF32:
+        case ValueType::kF32:
           result = static_cast<int32_t>(return_value.to<float>());
           break;
-        case kF64:
+        case ValueType::kF64:
           result = static_cast<int32_t>(return_value.to<double>());
           break;
         default:

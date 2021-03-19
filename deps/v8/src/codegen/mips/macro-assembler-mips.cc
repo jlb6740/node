@@ -23,10 +23,7 @@
 #include "src/runtime/runtime.h"
 #include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-manager.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 // Satisfy cpplint check, but don't include platform-specific header. It is
 // included recursively via macro-assembler.h.
@@ -2744,13 +2741,8 @@ void TurboAssembler::TruncateDoubleToI(Isolate* isolate, Zone* zone,
   Subu(sp, sp, Operand(kDoubleSize));  // Put input on stack.
   Sdc1(double_input, MemOperand(sp, 0));
 
-#if V8_ENABLE_WEBASSEMBLY
   if (stub_mode == StubCallMode::kCallWasmRuntimeStub) {
     Call(wasm::WasmCode::kDoubleToI, RelocInfo::WASM_STUB_CALL);
-#else
-  // For balance.
-  if (false) {
-#endif  // V8_ENABLE_WEBASSEMBLY
   } else {
     Call(BUILTIN_CODE(isolate, DoubleToI), RelocInfo::CODE_TARGET);
   }
@@ -4383,6 +4375,7 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
   DCHECK_EQ(actual_parameter_count, a0);
   DCHECK_EQ(expected_parameter_count, a2);
 
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   // If the expected parameter count is equal to the adaptor sentinel, no need
   // to push undefined value as arguments.
   Branch(&regular_invoke, eq, expected_parameter_count,
@@ -4436,7 +4429,20 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
     CallRuntime(Runtime::kThrowStackOverflow);
     break_(0xCC);
   }
+#else
+  // Check whether the expected and actual arguments count match. The registers
+  // are set up according to contract with ArgumentsAdaptorTrampoline:
+  Branch(&regular_invoke, eq, expected_parameter_count,
+         Operand(actual_parameter_count));
 
+  Handle<Code> adaptor = BUILTIN_CODE(isolate(), ArgumentsAdaptorTrampoline);
+  if (flag == CALL_FUNCTION) {
+    Call(adaptor);
+    Branch(done);
+  } else {
+    Jump(adaptor, RelocInfo::CODE_TARGET);
+  }
+#endif
   bind(&regular_invoke);
 }
 
@@ -4565,13 +4571,6 @@ void MacroAssembler::GetObjectType(Register object, Register map,
                                    Register type_reg) {
   LoadMap(map, object);
   lhu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
-}
-
-void MacroAssembler::GetInstanceTypeRange(Register map, Register type_reg,
-                                          InstanceType lower_limit,
-                                          Register range) {
-  lhu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
-  Subu(range, type_reg, Operand(lower_limit));
 }
 
 // -----------------------------------------------------------------------------
@@ -4813,7 +4812,7 @@ void TurboAssembler::LoadMap(Register destination, Register object) {
   Lw(destination, FieldMemOperand(object, HeapObject::kMapOffset));
 }
 
-void MacroAssembler::LoadNativeContextSlot(Register dst, int index) {
+void MacroAssembler::LoadNativeContextSlot(int index, Register dst) {
   LoadMap(dst, cp);
   Lw(dst,
      FieldMemOperand(dst, Map::kConstructorOrBackPointerOrNativeContextOffset));
@@ -5073,12 +5072,9 @@ void MacroAssembler::AssertFunction(Register object) {
     SmiTst(object, t8);
     Check(ne, AbortReason::kOperandIsASmiAndNotAFunction, t8,
           Operand(zero_reg));
-    push(object);
-    LoadMap(object, object);
-    GetInstanceTypeRange(object, object, FIRST_JS_FUNCTION_TYPE, t8);
-    Check(ls, AbortReason::kOperandIsNotAFunction, t8,
-          Operand(LAST_JS_FUNCTION_TYPE - FIRST_JS_FUNCTION_TYPE));
-    pop(object);
+    GetObjectType(object, t8, t8);
+    Check(eq, AbortReason::kOperandIsNotAFunction, t8,
+          Operand(JS_FUNCTION_TYPE));
   }
 }
 

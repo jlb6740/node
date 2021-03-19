@@ -13,6 +13,7 @@
 #include "test/unittests/compiler/node-test-utils.h"
 
 using ::testing::_;
+using v8::internal::compiler::Node;
 
 namespace c = v8::internal::compiler;
 

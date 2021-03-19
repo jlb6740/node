@@ -6,7 +6,6 @@
 
 #include <unordered_set>
 
-#include "src/heap/cppgc/heap-base.h"
 #include "src/heap/cppgc/stats-collector.h"
 
 namespace cppgc {
@@ -23,7 +22,7 @@ void MutatorMarkingState::FlushNotFullyConstructedObjects() {
 
 void MutatorMarkingState::FlushDiscoveredEphemeronPairs() {
   StatsCollector::EnabledScope stats_scope(
-      heap_.stats_collector(), StatsCollector::kMarkFlushEphemerons);
+      heap_, StatsCollector::kMarkFlushEphemerons);
   discovered_ephemeron_pairs_worklist_.Publish();
   if (!discovered_ephemeron_pairs_worklist_.IsGlobalEmpty()) {
     ephemeron_pairs_for_processing_worklist_.Merge(

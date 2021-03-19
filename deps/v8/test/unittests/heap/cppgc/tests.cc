@@ -20,10 +20,12 @@ std::shared_ptr<TestPlatform> TestWithPlatform::platform_;
 void TestWithPlatform::SetUpTestSuite() {
   platform_ = std::make_unique<TestPlatform>(
       std::make_unique<DelegatingTracingController>());
+  cppgc::InitializeProcess(platform_->GetPageAllocator());
 }
 
 // static
 void TestWithPlatform::TearDownTestSuite() {
+  cppgc::ShutdownProcess();
   platform_.reset();
 }
 
@@ -36,7 +38,7 @@ void TestWithHeap::ResetLinearAllocationBuffers() {
 }
 
 TestSupportingAllocationOnly::TestSupportingAllocationOnly()
-    : no_gc_scope_(GetHeap()->GetHeapHandle()) {}
+    : no_gc_scope_(*internal::Heap::From(GetHeap())) {}
 
 }  // namespace testing
 }  // namespace internal

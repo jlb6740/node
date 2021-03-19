@@ -33,19 +33,24 @@ MaybeHandle<JSSegmenter> JSSegmenter::New(Isolate* isolate, Handle<Map> map,
   std::vector<std::string> requested_locales =
       maybe_requested_locales.FromJust();
 
+  // 5. If options is undefined, then
   Handle<JSReceiver> options;
-  const char* service = "Intl.Segmenter";
-  // 5. Let options be GetOptionsObject(_options_).
-  ASSIGN_RETURN_ON_EXCEPTION(
-      isolate, options, Intl::GetOptionsObject(isolate, input_options, service),
-      JSSegmenter);
+  if (input_options->IsUndefined(isolate)) {
+    //  a. Let options be ObjectCreate(null).
+    options = isolate->factory()->NewJSObjectWithNullProto();
+  } else {  // 6. Else
+    // a. Let options be ? ToObject(options).
+    ASSIGN_RETURN_ON_EXCEPTION(isolate, options,
+                               Object::ToObject(isolate, input_options),
+                               JSSegmenter);
+  }
 
   // 7. Let opt be a new Record.
   // 8. Let matcher be ? GetOption(options, "localeMatcher", "string",
   // « "lookup", "best fit" », "best fit").
   // 9. Set opt.[[localeMatcher]] to matcher.
   Maybe<Intl::MatcherOption> maybe_locale_matcher =
-      Intl::GetLocaleMatcher(isolate, options, service);
+      Intl::GetLocaleMatcher(isolate, options, "Intl.Segmenter");
   MAYBE_RETURN(maybe_locale_matcher, MaybeHandle<JSSegmenter>());
   Intl::MatcherOption matcher = maybe_locale_matcher.FromJust();
 
@@ -69,7 +74,7 @@ MaybeHandle<JSSegmenter> JSSegmenter::New(Isolate* isolate, Handle<Map> map,
   // 13. Let granularity be ? GetOption(options, "granularity", "string", «
   // "grapheme", "word", "sentence" », "grapheme").
   Maybe<Granularity> maybe_granularity = Intl::GetStringOption<Granularity>(
-      isolate, options, "granularity", service,
+      isolate, options, "granularity", "Intl.Segmenter",
       {"grapheme", "word", "sentence"},
       {Granularity::GRAPHEME, Granularity::WORD, Granularity::SENTENCE},
       Granularity::GRAPHEME);

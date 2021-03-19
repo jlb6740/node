@@ -4,13 +4,10 @@
 
 #include "src/heap/cppgc/marker.h"
 
-#include <memory>
-
 #include "include/cppgc/allocation.h"
 #include "include/cppgc/internal/pointer-policies.h"
 #include "include/cppgc/member.h"
 #include "include/cppgc/persistent.h"
-#include "include/cppgc/trace-trait.h"
 #include "src/heap/cppgc/heap-object-header.h"
 #include "src/heap/cppgc/marking-visitor.h"
 #include "src/heap/cppgc/stats-collector.h"
@@ -215,7 +212,6 @@ TEST_F(MarkerTest, NestedObjectsOnStackAreMarked) {
 }
 
 namespace {
-
 class GCedWithCallback : public GarbageCollected<GCedWithCallback> {
  public:
   template <typename Callback>
@@ -223,19 +219,8 @@ class GCedWithCallback : public GarbageCollected<GCedWithCallback> {
     callback(this);
   }
 
-  template <typename Callback>
-  GCedWithCallback(Callback callback, GCed* gced) : gced_(gced) {
-    callback(this);
-  }
-
-  void Trace(Visitor* visitor) const { visitor->Trace(gced_); }
-
-  GCed* gced() const { return gced_; }
-
- private:
-  Member<GCed> gced_;
+  void Trace(Visitor*) const {}
 };
-
 }  // namespace
 
 TEST_F(MarkerTest, InConstructionObjectIsEventuallyMarkedEmptyStack) {
@@ -267,63 +252,6 @@ TEST_F(MarkerTest, InConstructionObjectIsEventuallyMarkedNonEmptyStack) {
             MarkingConfig::StackState::kMayContainHeapPointers);
         EXPECT_TRUE(HeapObjectHeader::FromPayload(obj).IsMarked());
       });
-}
-
-namespace {
-
-// Storage that can be used to hide a pointer from the GC. Only useful when
-// dealing with the stack separately.
-class GCObliviousObjectStorage final {
- public:
-  GCObliviousObjectStorage()
-      : storage_(std::make_unique<const void*>(nullptr)) {}
-
-  template <typename T>
-  void set_object(T* t) {
-    *storage_.get() = TraceTrait<T>::GetTraceDescriptor(t).base_object_payload;
-  }
-
-  const void* object() const { return *storage_; }
-
- private:
-  std::unique_ptr<const void*> storage_;
-};
-
-V8_NOINLINE void RegisterInConstructionObject(
-    AllocationHandle& allocation_handle, Visitor& v,
-    GCObliviousObjectStorage& storage) {
-  // Create deeper stack to avoid finding any temporary reference in the caller.
-  char space[500];
-  USE(space);
-  MakeGarbageCollected<GCedWithCallback>(
-      allocation_handle,
-      [&visitor = v, &storage](GCedWithCallback* obj) {
-        Member<GCedWithCallback> member(obj);
-        // Adds GCedWithCallback to in-construction objects.
-        visitor.Trace(member);
-        EXPECT_FALSE(HeapObjectHeader::FromPayload(obj).IsMarked());
-        // The inner object GCed is only found if GCedWithCallback is processed.
-        storage.set_object(obj->gced());
-      },
-      // Initializing store does not trigger a write barrier.
-      MakeGarbageCollected<GCed>(allocation_handle));
-}
-
-}  // namespace
-
-TEST_F(MarkerTest,
-       InConstructionObjectIsEventuallyMarkedDifferentNonEmptyStack) {
-  static const Marker::MarkingConfig config = {
-      MarkingConfig::CollectionType::kMajor,
-      MarkingConfig::StackState::kMayContainHeapPointers};
-  InitializeMarker(*Heap::From(GetHeap()), GetPlatformHandle().get(), config);
-
-  GCObliviousObjectStorage storage;
-  RegisterInConstructionObject(GetAllocationHandle(), marker()->Visitor(),
-                               storage);
-  EXPECT_FALSE(HeapObjectHeader::FromPayload(storage.object()).IsMarked());
-  marker()->FinishMarking(MarkingConfig::StackState::kMayContainHeapPointers);
-  EXPECT_TRUE(HeapObjectHeader::FromPayload(storage.object()).IsMarked());
 }
 
 TEST_F(MarkerTest, SentinelNotClearedOnWeakPersistentHandling) {
@@ -362,31 +290,30 @@ class IncrementalMarkingTest : public testing::TestWithHeap {
       MarkingConfig::MarkingType::kIncremental};
 
   void FinishSteps(MarkingConfig::StackState stack_state) {
-    while (!SingleStep(stack_state)) {
-    }
+    while (!SingleStep(stack_state)) {}
   }
 
   void FinishMarking() {
-    GetMarkerRef()->FinishMarking(
-        MarkingConfig::StackState::kMayContainHeapPointers);
+    marker_->FinishMarking(MarkingConfig::StackState::kMayContainHeapPointers);
     // Pretend do finish sweeping as StatsCollector verifies that Notify*
     // methods are called in the right order.
-    GetMarkerRef().reset();
     Heap::From(GetHeap())->stats_collector()->NotifySweepingCompleted();
   }
 
   void InitializeMarker(HeapBase& heap, cppgc::Platform* platform,
                         MarkingConfig config) {
-    GetMarkerRef() =
+    marker_ =
         MarkerFactory::CreateAndStartMarking<Marker>(heap, platform, config);
   }
 
-  MarkerBase* marker() const { return GetMarkerRef().get(); }
+  Marker* marker() const { return marker_.get(); }
 
  private:
   bool SingleStep(MarkingConfig::StackState stack_state) {
-    return GetMarkerRef()->IncrementalMarkingStepForTesting(stack_state);
+    return marker_->IncrementalMarkingStepForTesting(stack_state);
   }
+
+  std::unique_ptr<Marker> marker_;
 };
 
 constexpr IncrementalMarkingTest::MarkingConfig
@@ -421,8 +348,9 @@ TEST_F(IncrementalMarkingTest,
   InitializeMarker(*Heap::From(GetHeap()), GetPlatformHandle().get(),
                    IncrementalPreciseMarkingConfig);
   root->SetChild(MakeGarbageCollected<GCed>(GetAllocationHandle()));
-  FinishSteps(MarkingConfig::StackState::kNoHeapPointers);
   HeapObjectHeader& header = HeapObjectHeader::FromPayload(root->child());
+  EXPECT_FALSE(header.IsMarked());
+  FinishSteps(MarkingConfig::StackState::kNoHeapPointers);
   EXPECT_TRUE(header.IsMarked());
   FinishMarking();
 }
@@ -457,7 +385,7 @@ TEST_F(IncrementalMarkingTest, IncrementalStepDuringAllocation) {
 
 TEST_F(IncrementalMarkingTest, MarkingRunsOutOfWorkEventually) {
   InitializeMarker(*Heap::From(GetHeap()), GetPlatformHandle().get(),
-                   IncrementalPreciseMarkingConfig);
+                IncrementalPreciseMarkingConfig);
   FinishSteps(MarkingConfig::StackState::kNoHeapPointers);
   FinishMarking();
 }

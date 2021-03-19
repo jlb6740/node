@@ -292,13 +292,7 @@ Reduction MemoryLowering::ReduceAllocateRaw(
 Reduction MemoryLowering::ReduceLoadFromObject(Node* node) {
   DCHECK_EQ(IrOpcode::kLoadFromObject, node->opcode());
   ObjectAccess const& access = ObjectAccessOf(node->op());
-  MachineRepresentation rep = access.machine_type.representation();
-  const Operator* load_op = ElementSizeInBytes(rep) > kTaggedSize &&
-                                    !machine()->UnalignedLoadSupported(
-                                        access.machine_type.representation())
-                                ? machine()->UnalignedLoad(access.machine_type)
-                                : machine()->Load(access.machine_type);
-  NodeProperties::ChangeOp(node, load_op);
+  NodeProperties::ChangeOp(node, machine()->Load(access.machine_type));
   return Changed(node);
 }
 
@@ -393,13 +387,9 @@ Reduction MemoryLowering::ReduceStoreToObject(Node* node,
   Node* value = node->InputAt(2);
   WriteBarrierKind write_barrier_kind = ComputeWriteBarrierKind(
       node, object, value, state, access.write_barrier_kind);
-  MachineRepresentation rep = access.machine_type.representation();
-  StoreRepresentation store_rep(rep, write_barrier_kind);
-  const Operator* store_op = ElementSizeInBytes(rep) > kTaggedSize &&
-                                     !machine()->UnalignedStoreSupported(rep)
-                                 ? machine()->UnalignedStore(rep)
-                                 : machine()->Store(store_rep);
-  NodeProperties::ChangeOp(node, store_op);
+  NodeProperties::ChangeOp(
+      node, machine()->Store(StoreRepresentation(
+                access.machine_type.representation(), write_barrier_kind)));
   return Changed(node);
 }
 

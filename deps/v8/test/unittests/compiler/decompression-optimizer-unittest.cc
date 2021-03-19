@@ -252,7 +252,7 @@ TEST_F(DecompressionOptimizerTest, TypedStateValues) {
       Node* constant_2 =
           graph()->NewNode(common()->HeapConstant(heap_constants[j]));
       graph()->SetEnd(graph()->NewNode(
-          common()->FrameState(BytecodeOffset::None(),
+          common()->FrameState(BailoutId::None(),
                                OutputFrameStateCombine::Ignore(), nullptr),
           typed_state_values, typed_state_values, typed_state_values,
           constant_2, UndefinedConstant(), graph()->start()));

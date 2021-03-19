@@ -69,14 +69,14 @@ class V8_EXPORT_PRIVATE Node final {
 #endif
 
   Node* InputAt(int index) const {
-    DCHECK_LE(0, index);
-    DCHECK_LT(index, InputCount());
+    CHECK_LE(0, index);
+    CHECK_LT(index, InputCount());
     return *GetInputPtrConst(index);
   }
 
   void ReplaceInput(int index, Node* new_to) {
-    DCHECK_LE(0, index);
-    DCHECK_LT(index, InputCount());
+    CHECK_LE(0, index);
+    CHECK_LT(index, InputCount());
     ZoneNodePtr* input_ptr = GetInputPtr(index);
     Node* old_to = *input_ptr;
     if (old_to != new_to) {
@@ -364,6 +364,25 @@ class Control : public NodeWrapper {
     DCHECK_GT(value->op()->ControlOutputCount(), 0);
     set_node(value);
     return value;
+  }
+};
+
+class FrameState : public NodeWrapper {
+ public:
+  explicit constexpr FrameState(Node* node) : NodeWrapper(node) {
+    // TODO(jgruber): Disallow kStart (needed for PromiseConstructorBasic unit
+    // test, among others).
+    SLOW_DCHECK(node->opcode() == IrOpcode::kFrameState ||
+                node->opcode() == IrOpcode::kStart);
+  }
+
+  // Duplicating here from frame-states.h for ease of access and to keep
+  // header include-balls small. Equality of the two constants is
+  // static-asserted elsewhere.
+  static constexpr int kFrameStateOuterStateInput = 5;
+
+  FrameState outer_frame_state() const {
+    return FrameState{node()->InputAt(kFrameStateOuterStateInput)};
   }
 };
 

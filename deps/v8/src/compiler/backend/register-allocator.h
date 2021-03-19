@@ -351,10 +351,6 @@ class TopTierRegisterAllocationData final : public RegisterAllocationData {
 
   TickCounter* tick_counter() { return tick_counter_; }
 
-  ZoneMap<TopLevelLiveRange*, AllocatedOperand*>& slot_for_const_range() {
-    return slot_for_const_range_;
-  }
-
  private:
   int GetNextLiveRangeId();
 
@@ -382,7 +378,6 @@ class TopTierRegisterAllocationData final : public RegisterAllocationData {
   ZoneVector<ZoneVector<LiveRange*>> spill_state_;
   RegisterAllocationFlags flags_;
   TickCounter* const tick_counter_;
-  ZoneMap<TopLevelLiveRange*, AllocatedOperand*> slot_for_const_range_;
 };
 
 // Representation of the non-empty interval [start,end[.

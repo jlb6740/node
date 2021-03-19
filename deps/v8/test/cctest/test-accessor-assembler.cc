@@ -32,7 +32,7 @@ void TestStubCacheOffsetCalculation(StubCache::Table table) {
     auto map = m.Parameter<Map>(2);
     TNode<IntPtrT> primary_offset =
         m.StubCachePrimaryOffsetForTesting(name, map);
-    TNode<IntPtrT> result;
+    Node* result;
     if (table == StubCache::kPrimary) {
       result = primary_offset;
     } else {

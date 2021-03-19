@@ -189,24 +189,23 @@ if (this.Worker) {
     // i32a[4]:
     //   always 0. Each worker is waiting on this index.
 
-    function workerCode() {
-      onmessage = function(msg) {
-        var id = msg.id;
-        var i32a = new Int32Array(msg.sab);
+    var workerScript =
+      `onmessage = function(msg) {
+         var id = msg.id;
+         var i32a = new Int32Array(msg.sab);
 
-        // Wait on i32a[4] (should be zero).
-        var result = Atomics.wait(i32a, 4, 0);
-        // Set i32a[id] to 1 to notify the main thread which workers were
-        // woken up.
-        Atomics.store(i32a, id, 1);
-        postMessage(result);
-      };
-    }
+         // Wait on i32a[4] (should be zero).
+         var result = Atomics.wait(i32a, 4, 0);
+         // Set i32a[id] to 1 to notify the main thread which workers were
+         // woken up.
+         Atomics.store(i32a, id, 1);
+         postMessage(result);
+       };`;
 
     var id;
     var workers = [];
     for (id = 0; id < 4; id++) {
-      workers[id] = new Worker(workerCode, {type: 'function'});
+      workers[id] = new Worker(workerScript, {type: 'string'});
       workers[id].postMessage({sab: sab, id: id});
     }
 

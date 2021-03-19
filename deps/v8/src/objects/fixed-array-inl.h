@@ -123,50 +123,21 @@ void FixedArray::NoWriteBarrierSet(FixedArray array, int index, Object value) {
   RELAXED_WRITE_FIELD(array, offset, value);
 }
 
-Object FixedArray::get(int index, RelaxedLoadTag) const {
+Object FixedArray::synchronized_get(int index) const {
   IsolateRoot isolate = GetIsolateForPtrCompr(*this);
-  return get(isolate, index);
+  return synchronized_get(isolate, index);
 }
 
-Object FixedArray::get(IsolateRoot isolate, int index, RelaxedLoadTag) const {
-  DCHECK_LT(static_cast<unsigned>(index), static_cast<unsigned>(length()));
-  return RELAXED_READ_FIELD(*this, OffsetOfElementAt(index));
-}
-
-void FixedArray::set(int index, Object value, RelaxedStoreTag,
-                     WriteBarrierMode mode) {
-  DCHECK_NE(map(), GetReadOnlyRoots().fixed_cow_array_map());
-  DCHECK_LT(static_cast<unsigned>(index), static_cast<unsigned>(length()));
-  RELAXED_WRITE_FIELD(*this, OffsetOfElementAt(index), value);
-  CONDITIONAL_WRITE_BARRIER(*this, OffsetOfElementAt(index), value, mode);
-}
-
-void FixedArray::set(int index, Smi value, RelaxedStoreTag tag) {
-  DCHECK(Object(value).IsSmi());
-  set(index, value, tag, SKIP_WRITE_BARRIER);
-}
-
-Object FixedArray::get(int index, AcquireLoadTag) const {
-  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
-  return get(isolate, index);
-}
-
-Object FixedArray::get(IsolateRoot isolate, int index, AcquireLoadTag) const {
+Object FixedArray::synchronized_get(IsolateRoot isolate, int index) const {
   DCHECK_LT(static_cast<unsigned>(index), static_cast<unsigned>(length()));
   return ACQUIRE_READ_FIELD(*this, OffsetOfElementAt(index));
 }
 
-void FixedArray::set(int index, Object value, ReleaseStoreTag,
-                     WriteBarrierMode mode) {
+void FixedArray::synchronized_set(int index, Smi value) {
   DCHECK_NE(map(), GetReadOnlyRoots().fixed_cow_array_map());
   DCHECK_LT(static_cast<unsigned>(index), static_cast<unsigned>(length()));
-  RELEASE_WRITE_FIELD(*this, OffsetOfElementAt(index), value);
-  CONDITIONAL_WRITE_BARRIER(*this, OffsetOfElementAt(index), value, mode);
-}
-
-void FixedArray::set(int index, Smi value, ReleaseStoreTag tag) {
   DCHECK(Object(value).IsSmi());
-  set(index, value, tag, SKIP_WRITE_BARRIER);
+  RELEASE_WRITE_FIELD(*this, OffsetOfElementAt(index), value);
 }
 
 void FixedArray::set_undefined(int index) {

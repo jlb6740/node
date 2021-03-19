@@ -41,7 +41,6 @@ class MachineGraph;
 class NodeOriginTable;
 class Schedule;
 class SourcePositionTable;
-struct WasmLoopInfo;
 
 class Pipeline : public AllStatic {
  public:
@@ -49,7 +48,7 @@ class Pipeline : public AllStatic {
   static V8_EXPORT_PRIVATE std::unique_ptr<OptimizedCompilationJob>
   NewCompilationJob(Isolate* isolate, Handle<JSFunction> function,
                     CodeKind code_kind, bool has_script,
-                    BytecodeOffset osr_offset = BytecodeOffset::None(),
+                    BailoutId osr_offset = BailoutId::None(),
                     JavaScriptFrame* osr_frame = nullptr);
 
   // Run the pipeline for the WebAssembly compilation info.
@@ -58,7 +57,7 @@ class Pipeline : public AllStatic {
       MachineGraph* mcgraph, CallDescriptor* call_descriptor,
       SourcePositionTable* source_positions, NodeOriginTable* node_origins,
       wasm::FunctionBody function_body, const wasm::WasmModule* module,
-      int function_index, std::vector<compiler::WasmLoopInfo>* loop_infos);
+      int function_index);
 
   // Run the pipeline on a machine graph and generate code.
   static wasm::WasmCompilationResult GenerateCodeForWasmNativeStub(

@@ -31,7 +31,21 @@ class PageBackend;
 
 class V8_EXPORT_PRIVATE ObjectAllocator final : public cppgc::AllocationHandle {
  public:
-  static constexpr size_t kSmallestSpaceSize = 32;
+  // NoAllocationScope is used in debug mode to catch unwanted allocations. E.g.
+  // allocations during GC.
+  class V8_EXPORT_PRIVATE V8_NODISCARD NoAllocationScope final {
+    CPPGC_STACK_ALLOCATED();
+
+   public:
+    explicit NoAllocationScope(ObjectAllocator&);
+    ~NoAllocationScope();
+
+    NoAllocationScope(const NoAllocationScope&) = delete;
+    NoAllocationScope& operator=(const NoAllocationScope&) = delete;
+
+   private:
+    ObjectAllocator& allocator_;
+  };
 
   ObjectAllocator(RawHeap* heap, PageBackend* page_backend,
                   StatsCollector* stats_collector);
@@ -42,16 +56,13 @@ class V8_EXPORT_PRIVATE ObjectAllocator final : public cppgc::AllocationHandle {
 
   void ResetLinearAllocationBuffers();
 
-  // Terminate the allocator. Subsequent allocation calls result in a crash.
-  void Terminate();
-
  private:
-  bool in_disallow_gc_scope() const;
-
   // Returns the initially tried SpaceType to allocate an object of |size| bytes
   // on. Returns the largest regular object size bucket for large objects.
   inline static RawHeap::RegularSpaceType GetInitialSpaceIndexForSize(
       size_t size);
+
+  bool is_allocation_allowed() const { return no_allocation_scope_ == 0; }
 
   inline void* AllocateObjectOnSpace(NormalPageSpace* space, size_t size,
                                      GCInfoIndex gcinfo);
@@ -62,10 +73,11 @@ class V8_EXPORT_PRIVATE ObjectAllocator final : public cppgc::AllocationHandle {
   RawHeap* raw_heap_;
   PageBackend* page_backend_;
   StatsCollector* stats_collector_;
+  size_t no_allocation_scope_ = 0;
 };
 
 void* ObjectAllocator::AllocateObject(size_t size, GCInfoIndex gcinfo) {
-  DCHECK(!in_disallow_gc_scope());
+  DCHECK(is_allocation_allowed());
   const size_t allocation_size =
       RoundUp<kAllocationGranularity>(size + sizeof(HeapObjectHeader));
   const RawHeap::RegularSpaceType type =
@@ -76,7 +88,7 @@ void* ObjectAllocator::AllocateObject(size_t size, GCInfoIndex gcinfo) {
 
 void* ObjectAllocator::AllocateObject(size_t size, GCInfoIndex gcinfo,
                                       CustomSpaceIndex space_index) {
-  DCHECK(!in_disallow_gc_scope());
+  DCHECK(is_allocation_allowed());
   const size_t allocation_size =
       RoundUp<kAllocationGranularity>(size + sizeof(HeapObjectHeader));
   return AllocateObjectOnSpace(
@@ -87,10 +99,8 @@ void* ObjectAllocator::AllocateObject(size_t size, GCInfoIndex gcinfo,
 // static
 RawHeap::RegularSpaceType ObjectAllocator::GetInitialSpaceIndexForSize(
     size_t size) {
-  static_assert(kSmallestSpaceSize == 32,
-                "should be half the next larger size");
   if (size < 64) {
-    if (size < kSmallestSpaceSize) return RawHeap::RegularSpaceType::kNormal1;
+    if (size < 32) return RawHeap::RegularSpaceType::kNormal1;
     return RawHeap::RegularSpaceType::kNormal2;
   }
   if (size < 128) return RawHeap::RegularSpaceType::kNormal3;

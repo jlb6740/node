@@ -23,9 +23,10 @@ void IncrementalMarkingSchedule::NotifyIncrementalMarkingStart() {
   incremental_marking_start_time_ = v8::base::TimeTicks::Now();
 }
 
-void IncrementalMarkingSchedule::UpdateMutatorThreadMarkedBytes(
+void IncrementalMarkingSchedule::UpdateIncrementalMarkedBytes(
     size_t overall_marked_bytes) {
-  mutator_thread_marked_bytes_ = overall_marked_bytes;
+  DCHECK(!incremental_marking_start_time_.IsNull());
+  incrementally_marked_bytes_ = overall_marked_bytes;
 }
 
 void IncrementalMarkingSchedule::AddConcurrentlyMarkedBytes(
@@ -35,7 +36,7 @@ void IncrementalMarkingSchedule::AddConcurrentlyMarkedBytes(
 }
 
 size_t IncrementalMarkingSchedule::GetOverallMarkedBytes() const {
-  return mutator_thread_marked_bytes_ + GetConcurrentlyMarkedBytes();
+  return incrementally_marked_bytes_ + GetConcurrentlyMarkedBytes();
 }
 
 size_t IncrementalMarkingSchedule::GetConcurrentlyMarkedBytes() const {

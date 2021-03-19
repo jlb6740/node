@@ -29,11 +29,10 @@ class WasmCompileLazyFrameConstants : public TypedFrameConstants {
   // See Generate_WasmCompileLazy in builtins-mips64.cc.
   static constexpr int kWasmInstanceOffset =
       TYPED_FRAME_PUSHED_VALUE_OFFSET(kNumberOfSavedAllParamRegs);
-
   static constexpr int kFixedFrameSizeFromFp =
       TypedFrameConstants::kFixedFrameSizeFromFp +
       kNumberOfSavedGpParamRegs * kPointerSize +
-      kNumberOfSavedFpParamRegs * kSimd128Size;
+      kNumberOfSavedFpParamRegs * kDoubleSize;
 };
 
 // Frame constructed by the {WasmDebugBreak} builtin.

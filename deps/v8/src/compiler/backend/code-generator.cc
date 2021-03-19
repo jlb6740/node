@@ -13,6 +13,7 @@
 #include "src/compiler/globals.h"
 #include "src/compiler/linkage.h"
 #include "src/compiler/pipeline.h"
+#include "src/compiler/wasm-compiler.h"
 #include "src/diagnostics/eh-frame.h"
 #include "src/execution/frames.h"
 #include "src/logging/counters.h"
@@ -605,8 +606,9 @@ bool CodeGenerator::IsNextInAssemblyOrder(RpoNumber block) const {
       .IsNext(instructions()->InstructionBlockAt(block)->ao_number());
 }
 
-void CodeGenerator::RecordSafepoint(ReferenceMap* references) {
-  Safepoint safepoint = safepoints()->DefineSafepoint(tasm());
+void CodeGenerator::RecordSafepoint(ReferenceMap* references,
+                                    Safepoint::DeoptMode deopt_mode) {
+  Safepoint safepoint = safepoints()->DefineSafepoint(tasm(), deopt_mode);
   int frame_header_offset = frame()->GetFixedSlotCount();
   for (const InstructionOperand& operand : references->reference_operands()) {
     if (operand.IsStackSlot()) {
@@ -854,18 +856,16 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleInstruction(
           DeoptImmedArgsCountField::decode(instr->opcode());
       DeoptimizationExit* const exit = AddDeoptimizationExit(
           instr, frame_state_offset, immediate_args_count);
-      Label continue_label;
       BranchInfo branch;
       branch.condition = condition;
       branch.true_label = exit->label();
-      branch.false_label = &continue_label;
+      branch.false_label = exit->continue_label();
       branch.fallthru = true;
       AssembleArchDeoptBranch(instr, &branch);
-      tasm()->bind(&continue_label);
+      tasm()->bind(exit->continue_label());
       if (mode == kFlags_deoptimize_and_poison) {
         AssembleBranchPoisoning(NegateFlagsCondition(branch.condition), instr);
       }
-      tasm()->bind(exit->continue_label());
       break;
     }
     case kFlags_set: {
@@ -874,11 +874,7 @@ CodeGenerator::CodeGenResult CodeGenerator::AssembleInstruction(
       break;
     }
     case kFlags_trap: {
-#if V8_ENABLE_WEBASSEMBLY
       AssembleArchTrap(instr, condition);
-#else
-      UNREACHABLE();
-#endif  // V8_ENABLE_WEBASSEMBLY
       break;
     }
     case kFlags_none: {
@@ -909,13 +905,7 @@ void CodeGenerator::AssembleSourcePosition(SourcePosition source_position) {
                                              source_position, false);
   if (FLAG_code_comments) {
     OptimizedCompilationInfo* info = this->info();
-    if (!info->IsOptimizing()) {
-#if V8_ENABLE_WEBASSEMBLY
-      if (!info->IsWasm()) return;
-#else
-      return;
-#endif  // V8_ENABLE_WEBASSEMBLY
-    }
+    if (!info->IsOptimizing() && !info->IsWasm()) return;
     std::ostringstream buffer;
     buffer << "-- ";
     // Turbolizer only needs the source position, as it can reconstruct
@@ -946,15 +936,12 @@ bool CodeGenerator::GetSlotAboveSPBeforeTailCall(Instruction* instr,
 }
 
 StubCallMode CodeGenerator::DetermineStubCallMode() const {
-#if V8_ENABLE_WEBASSEMBLY
   CodeKind code_kind = info()->code_kind();
-  if (code_kind == CodeKind::WASM_FUNCTION ||
-      code_kind == CodeKind::WASM_TO_CAPI_FUNCTION ||
-      code_kind == CodeKind::WASM_TO_JS_FUNCTION) {
-    return StubCallMode::kCallWasmRuntimeStub;
-  }
-#endif  // V8_ENABLE_WEBASSEMBLY
-  return StubCallMode::kCallCodeObject;
+  return (code_kind == CodeKind::WASM_FUNCTION ||
+          code_kind == CodeKind::WASM_TO_CAPI_FUNCTION ||
+          code_kind == CodeKind::WASM_TO_JS_FUNCTION)
+             ? StubCallMode::kCallWasmRuntimeStub
+             : StubCallMode::kCallCodeObject;
 }
 
 void CodeGenerator::AssembleGaps(Instruction* instr) {
@@ -998,8 +985,8 @@ Handle<DeoptimizationData> CodeGenerator::GenerateDeoptimizationData() {
   Handle<DeoptimizationData> data =
       DeoptimizationData::New(isolate(), deopt_count, AllocationType::kOld);
 
-  Handle<TranslationArray> translation_array =
-      translations_.ToTranslationArray(isolate()->factory());
+  Handle<ByteArray> translation_array =
+      translations_.CreateByteArray(isolate()->factory());
 
   data->SetTranslationByteArray(*translation_array);
   data->SetInlinedFunctionCount(
@@ -1035,7 +1022,7 @@ Handle<DeoptimizationData> CodeGenerator::GenerateDeoptimizationData() {
     data->SetOsrBytecodeOffset(Smi::FromInt(info_->osr_offset().ToInt()));
     data->SetOsrPcOffset(Smi::FromInt(osr_pc_offset_));
   } else {
-    BytecodeOffset osr_offset = BytecodeOffset::None();
+    BailoutId osr_offset = BailoutId::None();
     data->SetOsrBytecodeOffset(Smi::FromInt(osr_offset.ToInt()));
     data->SetOsrPcOffset(Smi::FromInt(-1));
   }
@@ -1062,7 +1049,9 @@ Label* CodeGenerator::AddJumpTable(Label** targets, size_t target_count) {
 void CodeGenerator::RecordCallPosition(Instruction* instr) {
   const bool needs_frame_state =
       instr->HasCallDescriptorFlag(CallDescriptor::kNeedsFrameState);
-  RecordSafepoint(instr->reference_map());
+  RecordSafepoint(instr->reference_map(), needs_frame_state
+                                              ? Safepoint::kLazyDeopt
+                                              : Safepoint::kNoLazyDeopt);
 
   if (instr->HasCallDescriptorFlag(CallDescriptor::kHasExceptionHandler)) {
     InstructionOperandConverter i(this, instr);
@@ -1105,49 +1094,66 @@ DeoptimizationEntry const& CodeGenerator::GetDeoptimizationEntry(
 
 void CodeGenerator::TranslateStateValueDescriptor(
     StateValueDescriptor* desc, StateValueList* nested,
-    InstructionOperandIterator* iter) {
+    Translation* translation, InstructionOperandIterator* iter) {
+  // Note:
+  // If translation is null, we just skip the relevant instruction operands.
   if (desc->IsNested()) {
-    translations_.BeginCapturedObject(static_cast<int>(nested->size()));
+    if (translation != nullptr) {
+      translation->BeginCapturedObject(static_cast<int>(nested->size()));
+    }
     for (auto field : *nested) {
-      TranslateStateValueDescriptor(field.desc, field.nested, iter);
+      TranslateStateValueDescriptor(field.desc, field.nested, translation,
+                                    iter);
     }
   } else if (desc->IsArgumentsElements()) {
-    translations_.ArgumentsElements(desc->arguments_type());
+    if (translation != nullptr) {
+      translation->ArgumentsElements(desc->arguments_type());
+    }
   } else if (desc->IsArgumentsLength()) {
-    translations_.ArgumentsLength();
+    if (translation != nullptr) {
+      translation->ArgumentsLength();
+    }
   } else if (desc->IsDuplicate()) {
-    translations_.DuplicateObject(static_cast<int>(desc->id()));
+    if (translation != nullptr) {
+      translation->DuplicateObject(static_cast<int>(desc->id()));
+    }
   } else if (desc->IsPlain()) {
     InstructionOperand* op = iter->Advance();
-    AddTranslationForOperand(iter->instruction(), op, desc->type());
+    if (translation != nullptr) {
+      AddTranslationForOperand(translation, iter->instruction(), op,
+                               desc->type());
+    }
   } else {
     DCHECK(desc->IsOptimizedOut());
+    if (translation != nullptr) {
       if (optimized_out_literal_id_ == -1) {
         optimized_out_literal_id_ = DefineDeoptimizationLiteral(
             DeoptimizationLiteral(isolate()->factory()->optimized_out()));
       }
-      translations_.StoreLiteral(optimized_out_literal_id_);
+      translation->StoreLiteral(optimized_out_literal_id_);
+    }
   }
 }
 
 void CodeGenerator::TranslateFrameStateDescriptorOperands(
-    FrameStateDescriptor* desc, InstructionOperandIterator* iter) {
+    FrameStateDescriptor* desc, InstructionOperandIterator* iter,
+    Translation* translation) {
   size_t index = 0;
   StateValueList* values = desc->GetStateValueDescriptors();
   for (StateValueList::iterator it = values->begin(); it != values->end();
        ++it, ++index) {
-    TranslateStateValueDescriptor((*it).desc, (*it).nested, iter);
+    TranslateStateValueDescriptor((*it).desc, (*it).nested, translation, iter);
   }
   DCHECK_EQ(desc->GetSize(), index);
 }
 
 void CodeGenerator::BuildTranslationForFrameStateDescriptor(
     FrameStateDescriptor* descriptor, InstructionOperandIterator* iter,
-    OutputFrameStateCombine state_combine) {
+    Translation* translation, OutputFrameStateCombine state_combine) {
   // Outer-most state must be added to translation first.
   if (descriptor->outer_state() != nullptr) {
     BuildTranslationForFrameStateDescriptor(descriptor->outer_state(), iter,
-                                            state_combine);
+                                            translation, state_combine);
   }
 
   Handle<SharedFunctionInfo> shared_info;
@@ -1158,59 +1164,49 @@ void CodeGenerator::BuildTranslationForFrameStateDescriptor(
     shared_info = info()->shared_info();
   }
 
-  const BytecodeOffset bailout_id = descriptor->bailout_id();
+  const BailoutId bailout_id = descriptor->bailout_id();
   const int shared_info_id =
       DefineDeoptimizationLiteral(DeoptimizationLiteral(shared_info));
   const unsigned int height =
       static_cast<unsigned int>(descriptor->GetHeight());
 
   switch (descriptor->type()) {
-    case FrameStateType::kUnoptimizedFunction: {
+    case FrameStateType::kInterpretedFunction: {
       int return_offset = 0;
       int return_count = 0;
       if (!state_combine.IsOutputIgnored()) {
         return_offset = static_cast<int>(state_combine.GetOffsetToPokeAt());
         return_count = static_cast<int>(iter->instruction()->OutputCount());
       }
-      translations_.BeginInterpretedFrame(bailout_id, shared_info_id, height,
-                                          return_offset, return_count);
+      translation->BeginInterpretedFrame(bailout_id, shared_info_id, height,
+                                         return_offset, return_count);
       break;
     }
     case FrameStateType::kArgumentsAdaptor:
-      translations_.BeginArgumentsAdaptorFrame(shared_info_id, height);
+      translation->BeginArgumentsAdaptorFrame(shared_info_id, height);
       break;
     case FrameStateType::kConstructStub:
       DCHECK(bailout_id.IsValidForConstructStub());
-      translations_.BeginConstructStubFrame(bailout_id, shared_info_id, height);
+      translation->BeginConstructStubFrame(bailout_id, shared_info_id, height);
       break;
     case FrameStateType::kBuiltinContinuation: {
-      translations_.BeginBuiltinContinuationFrame(bailout_id, shared_info_id,
-                                                  height);
+      translation->BeginBuiltinContinuationFrame(bailout_id, shared_info_id,
+                                                 height);
       break;
     }
-#if V8_ENABLE_WEBASSEMBLY
-    case FrameStateType::kJSToWasmBuiltinContinuation: {
-      const JSToWasmFrameStateDescriptor* js_to_wasm_descriptor =
-          static_cast<const JSToWasmFrameStateDescriptor*>(descriptor);
-      translations_.BeginJSToWasmBuiltinContinuationFrame(
-          bailout_id, shared_info_id, height,
-          js_to_wasm_descriptor->return_kind());
-      break;
-    }
-#endif  // V8_ENABLE_WEBASSEMBLY
     case FrameStateType::kJavaScriptBuiltinContinuation: {
-      translations_.BeginJavaScriptBuiltinContinuationFrame(
+      translation->BeginJavaScriptBuiltinContinuationFrame(
           bailout_id, shared_info_id, height);
       break;
     }
     case FrameStateType::kJavaScriptBuiltinContinuationWithCatch: {
-      translations_.BeginJavaScriptBuiltinContinuationWithCatchFrame(
+      translation->BeginJavaScriptBuiltinContinuationWithCatchFrame(
           bailout_id, shared_info_id, height);
       break;
     }
   }
 
-  TranslateFrameStateDescriptorOperands(descriptor, iter);
+  TranslateFrameStateDescriptorOperands(descriptor, iter, translation);
 }
 
 DeoptimizationExit* CodeGenerator::BuildTranslation(
@@ -1221,21 +1217,23 @@ DeoptimizationExit* CodeGenerator::BuildTranslation(
   FrameStateDescriptor* const descriptor = entry.descriptor();
   frame_state_offset++;
 
-  const int update_feedback_count = entry.feedback().IsValid() ? 1 : 0;
-  const int translation_index = translations_.BeginTranslation(
-      static_cast<int>(descriptor->GetFrameCount()),
-      static_cast<int>(descriptor->GetJSFrameCount()), update_feedback_count);
+  int update_feedback_count = entry.feedback().IsValid() ? 1 : 0;
+  Translation translation(&translations_,
+                          static_cast<int>(descriptor->GetFrameCount()),
+                          static_cast<int>(descriptor->GetJSFrameCount()),
+                          update_feedback_count, zone());
   if (entry.feedback().IsValid()) {
     DeoptimizationLiteral literal =
         DeoptimizationLiteral(entry.feedback().vector);
     int literal_id = DefineDeoptimizationLiteral(literal);
-    translations_.AddUpdateFeedback(literal_id, entry.feedback().slot.ToInt());
+    translation.AddUpdateFeedback(literal_id, entry.feedback().slot.ToInt());
   }
   InstructionOperandIterator iter(instr, frame_state_offset);
-  BuildTranslationForFrameStateDescriptor(descriptor, &iter, state_combine);
+  BuildTranslationForFrameStateDescriptor(descriptor, &iter, &translation,
+                                          state_combine);
 
   DeoptimizationExit* const exit = zone()->New<DeoptimizationExit>(
-      current_source_position_, descriptor->bailout_id(), translation_index,
+      current_source_position_, descriptor->bailout_id(), translation.index(),
       pc_offset, entry.kind(), entry.reason());
 
   if (!Deoptimizer::kSupportsFixedDeoptExitSizes) {
@@ -1255,20 +1253,21 @@ DeoptimizationExit* CodeGenerator::BuildTranslation(
   return exit;
 }
 
-void CodeGenerator::AddTranslationForOperand(Instruction* instr,
+void CodeGenerator::AddTranslationForOperand(Translation* translation,
+                                             Instruction* instr,
                                              InstructionOperand* op,
                                              MachineType type) {
   if (op->IsStackSlot()) {
     if (type.representation() == MachineRepresentation::kBit) {
-      translations_.StoreBoolStackSlot(LocationOperand::cast(op)->index());
+      translation->StoreBoolStackSlot(LocationOperand::cast(op)->index());
     } else if (type == MachineType::Int8() || type == MachineType::Int16() ||
                type == MachineType::Int32()) {
-      translations_.StoreInt32StackSlot(LocationOperand::cast(op)->index());
+      translation->StoreInt32StackSlot(LocationOperand::cast(op)->index());
     } else if (type == MachineType::Uint8() || type == MachineType::Uint16() ||
                type == MachineType::Uint32()) {
-      translations_.StoreUint32StackSlot(LocationOperand::cast(op)->index());
+      translation->StoreUint32StackSlot(LocationOperand::cast(op)->index());
     } else if (type == MachineType::Int64()) {
-      translations_.StoreInt64StackSlot(LocationOperand::cast(op)->index());
+      translation->StoreInt64StackSlot(LocationOperand::cast(op)->index());
     } else {
 #if defined(V8_COMPRESS_POINTERS)
       CHECK(MachineRepresentation::kTagged == type.representation() ||
@@ -1276,27 +1275,27 @@ void CodeGenerator::AddTranslationForOperand(Instruction* instr,
 #else
       CHECK(MachineRepresentation::kTagged == type.representation());
 #endif
-      translations_.StoreStackSlot(LocationOperand::cast(op)->index());
+      translation->StoreStackSlot(LocationOperand::cast(op)->index());
     }
   } else if (op->IsFPStackSlot()) {
     if (type.representation() == MachineRepresentation::kFloat64) {
-      translations_.StoreDoubleStackSlot(LocationOperand::cast(op)->index());
+      translation->StoreDoubleStackSlot(LocationOperand::cast(op)->index());
     } else {
       CHECK_EQ(MachineRepresentation::kFloat32, type.representation());
-      translations_.StoreFloatStackSlot(LocationOperand::cast(op)->index());
+      translation->StoreFloatStackSlot(LocationOperand::cast(op)->index());
     }
   } else if (op->IsRegister()) {
     InstructionOperandConverter converter(this, instr);
     if (type.representation() == MachineRepresentation::kBit) {
-      translations_.StoreBoolRegister(converter.ToRegister(op));
+      translation->StoreBoolRegister(converter.ToRegister(op));
     } else if (type == MachineType::Int8() || type == MachineType::Int16() ||
                type == MachineType::Int32()) {
-      translations_.StoreInt32Register(converter.ToRegister(op));
+      translation->StoreInt32Register(converter.ToRegister(op));
     } else if (type == MachineType::Uint8() || type == MachineType::Uint16() ||
                type == MachineType::Uint32()) {
-      translations_.StoreUint32Register(converter.ToRegister(op));
+      translation->StoreUint32Register(converter.ToRegister(op));
     } else if (type == MachineType::Int64()) {
-      translations_.StoreInt64Register(converter.ToRegister(op));
+      translation->StoreInt64Register(converter.ToRegister(op));
     } else {
 #if defined(V8_COMPRESS_POINTERS)
       CHECK(MachineRepresentation::kTagged == type.representation() ||
@@ -1304,15 +1303,15 @@ void CodeGenerator::AddTranslationForOperand(Instruction* instr,
 #else
       CHECK(MachineRepresentation::kTagged == type.representation());
 #endif
-      translations_.StoreRegister(converter.ToRegister(op));
+      translation->StoreRegister(converter.ToRegister(op));
     }
   } else if (op->IsFPRegister()) {
     InstructionOperandConverter converter(this, instr);
     if (type.representation() == MachineRepresentation::kFloat64) {
-      translations_.StoreDoubleRegister(converter.ToDoubleRegister(op));
+      translation->StoreDoubleRegister(converter.ToDoubleRegister(op));
     } else {
       CHECK_EQ(MachineRepresentation::kFloat32, type.representation());
-      translations_.StoreFloatRegister(converter.ToFloatRegister(op));
+      translation->StoreFloatRegister(converter.ToFloatRegister(op));
     }
   } else {
     CHECK(op->IsImmediate());
@@ -1391,10 +1390,10 @@ void CodeGenerator::AddTranslationForOperand(Instruction* instr,
         UNREACHABLE();
     }
     if (literal.object().equals(info()->closure())) {
-      translations_.StoreJSFrameFunction();
+      translation->StoreJSFrameFunction();
     } else {
       int literal_id = DefineDeoptimizationLiteral(literal);
-      translations_.StoreLiteral(literal_id);
+      translation->StoreLiteral(literal_id);
     }
   }
 }

@@ -23,10 +23,7 @@
 #include "src/runtime/runtime.h"
 #include "src/snapshot/embedded/embedded-data.h"
 #include "src/snapshot/snapshot.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-manager.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 // Satisfy cpplint check, but don't include platform-specific header. It is
 // included recursively via macro-assembler.h.
@@ -2014,31 +2011,6 @@ void TurboAssembler::MultiPopFPU(RegList regs) {
   daddiu(sp, sp, stack_offset);
 }
 
-void TurboAssembler::MultiPushMSA(RegList regs) {
-  int16_t num_to_push = base::bits::CountPopulation(regs);
-  int16_t stack_offset = num_to_push * kSimd128Size;
-
-  Dsubu(sp, sp, Operand(stack_offset));
-  for (int16_t i = kNumRegisters - 1; i >= 0; i--) {
-    if ((regs & (1 << i)) != 0) {
-      stack_offset -= kSimd128Size;
-      st_d(MSARegister::from_code(i), MemOperand(sp, stack_offset));
-    }
-  }
-}
-
-void TurboAssembler::MultiPopMSA(RegList regs) {
-  int16_t stack_offset = 0;
-
-  for (int16_t i = 0; i < kNumRegisters; i++) {
-    if ((regs & (1 << i)) != 0) {
-      ld_d(MSARegister::from_code(i), MemOperand(sp, stack_offset));
-      stack_offset += kSimd128Size;
-    }
-  }
-  daddiu(sp, sp, stack_offset);
-}
-
 void TurboAssembler::Ext(Register rt, Register rs, uint16_t pos,
                          uint16_t size) {
   DCHECK_LT(pos, 32);
@@ -2661,24 +2633,22 @@ void TurboAssembler::Round_s_s(FPURegister dst, FPURegister src) {
 
 void TurboAssembler::LoadLane(MSASize sz, MSARegister dst, uint8_t laneidx,
                               MemOperand src) {
-  UseScratchRegisterScope temps(this);
-  Register scratch = temps.Acquire();
   switch (sz) {
     case MSA_B:
-      Lbu(scratch, src);
-      insert_b(dst, laneidx, scratch);
+      Lbu(kScratchReg, src);
+      insert_b(dst, laneidx, kScratchReg);
       break;
     case MSA_H:
-      Lhu(scratch, src);
-      insert_h(dst, laneidx, scratch);
+      Lhu(kScratchReg, src);
+      insert_h(dst, laneidx, kScratchReg);
       break;
     case MSA_W:
-      Lwu(scratch, src);
-      insert_w(dst, laneidx, scratch);
+      Lwu(kScratchReg, src);
+      insert_w(dst, laneidx, kScratchReg);
       break;
     case MSA_D:
-      Ld(scratch, src);
-      insert_d(dst, laneidx, scratch);
+      Ld(kScratchReg, src);
+      insert_d(dst, laneidx, kScratchReg);
       break;
     default:
       UNREACHABLE();
@@ -2687,24 +2657,22 @@ void TurboAssembler::LoadLane(MSASize sz, MSARegister dst, uint8_t laneidx,
 
 void TurboAssembler::StoreLane(MSASize sz, MSARegister src, uint8_t laneidx,
                                MemOperand dst) {
-  UseScratchRegisterScope temps(this);
-  Register scratch = temps.Acquire();
   switch (sz) {
     case MSA_B:
-      copy_u_b(scratch, src, laneidx);
-      Sb(scratch, dst);
+      copy_u_b(kScratchReg, src, laneidx);
+      Sb(kScratchReg, dst);
       break;
     case MSA_H:
-      copy_u_h(scratch, src, laneidx);
-      Sh(scratch, dst);
+      copy_u_h(kScratchReg, src, laneidx);
+      Sh(kScratchReg, dst);
       break;
     case MSA_W:
       if (laneidx == 0) {
         FPURegister src_reg = FPURegister::from_code(src.code());
         Swc1(src_reg, dst);
       } else {
-        copy_u_w(scratch, src, laneidx);
-        Sw(scratch, dst);
+        copy_u_w(kScratchReg, src, laneidx);
+        Sw(kScratchReg, dst);
       }
       break;
     case MSA_D:
@@ -2712,8 +2680,8 @@ void TurboAssembler::StoreLane(MSASize sz, MSARegister src, uint8_t laneidx,
         FPURegister src_reg = FPURegister::from_code(src.code());
         Sdc1(src_reg, dst);
       } else {
-        copy_s_d(scratch, src, laneidx);
-        Sd(scratch, dst);
+        copy_s_d(kScratchReg, src, laneidx);
+        Sd(kScratchReg, dst);
       }
       break;
     default:
@@ -2757,51 +2725,6 @@ void TurboAssembler::ExtMulHigh(MSADataType type, MSARegister dst,
   }
 }
 #undef EXT_MUL_BINOP
-
-void TurboAssembler::LoadSplat(MSASize sz, MSARegister dst, MemOperand src) {
-  UseScratchRegisterScope temps(this);
-  Register scratch = temps.Acquire();
-  switch (sz) {
-    case MSA_B:
-      Lb(scratch, src);
-      fill_b(dst, scratch);
-      break;
-    case MSA_H:
-      Lh(scratch, src);
-      fill_h(dst, scratch);
-      break;
-    case MSA_W:
-      Lw(scratch, src);
-      fill_w(dst, scratch);
-      break;
-    case MSA_D:
-      Ld(scratch, src);
-      fill_d(dst, scratch);
-      break;
-    default:
-      UNREACHABLE();
-  }
-}
-
-void TurboAssembler::ExtAddPairwise(MSADataType type, MSARegister dst,
-                                    MSARegister src) {
-  switch (type) {
-    case MSAS8:
-      hadd_s_h(dst, src, src);
-      break;
-    case MSAU8:
-      hadd_u_h(dst, src, src);
-      break;
-    case MSAS16:
-      hadd_s_w(dst, src, src);
-      break;
-    case MSAU16:
-      hadd_u_w(dst, src, src);
-      break;
-    default:
-      UNREACHABLE();
-  }
-}
 
 void TurboAssembler::MSARoundW(MSARegister dst, MSARegister src,
                                FPURoundingMode mode) {
@@ -3382,13 +3305,8 @@ void TurboAssembler::TruncateDoubleToI(Isolate* isolate, Zone* zone,
   Dsubu(sp, sp, Operand(kDoubleSize));  // Put input on stack.
   Sdc1(double_input, MemOperand(sp, 0));
 
-#if V8_ENABLE_WEBASSEMBLY
   if (stub_mode == StubCallMode::kCallWasmRuntimeStub) {
     Call(wasm::WasmCode::kDoubleToI, RelocInfo::WASM_STUB_CALL);
-#else
-  // For balance.
-  if (false) {
-#endif  // V8_ENABLE_WEBASSEMBLY
   } else {
     Call(BUILTIN_CODE(isolate, DoubleToI), RelocInfo::CODE_TARGET);
   }
@@ -4897,6 +4815,7 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
   DCHECK_EQ(actual_parameter_count, a0);
   DCHECK_EQ(expected_parameter_count, a2);
 
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   // If the expected parameter count is equal to the adaptor sentinel, no need
   // to push undefined value as arguments.
   Branch(&regular_invoke, eq, expected_parameter_count,
@@ -4950,7 +4869,21 @@ void MacroAssembler::InvokePrologue(Register expected_parameter_count,
     CallRuntime(Runtime::kThrowStackOverflow);
     break_(0xCC);
   }
+#else
+  // Check whether the expected and actual arguments count match. The registers
+  // are set up according to contract with ArgumentsAdaptorTrampoline:
 
+  Branch(&regular_invoke, eq, expected_parameter_count,
+         Operand(actual_parameter_count));
+
+  Handle<Code> adaptor = BUILTIN_CODE(isolate(), ArgumentsAdaptorTrampoline);
+  if (flag == CALL_FUNCTION) {
+    Call(adaptor);
+    Branch(done);
+  } else {
+    Jump(adaptor, RelocInfo::CODE_TARGET);
+  }
+#endif
   bind(&regular_invoke);
 }
 
@@ -5080,13 +5013,6 @@ void MacroAssembler::GetObjectType(Register object, Register map,
                                    Register type_reg) {
   LoadMap(map, object);
   Lhu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
-}
-
-void MacroAssembler::GetInstanceTypeRange(Register map, Register type_reg,
-                                          InstanceType lower_limit,
-                                          Register range) {
-  Lhu(type_reg, FieldMemOperand(map, Map::kInstanceTypeOffset));
-  Dsubu(range, type_reg, Operand(lower_limit));
 }
 
 // -----------------------------------------------------------------------------
@@ -5334,7 +5260,7 @@ void TurboAssembler::LoadMap(Register destination, Register object) {
   Ld(destination, FieldMemOperand(object, HeapObject::kMapOffset));
 }
 
-void MacroAssembler::LoadNativeContextSlot(Register dst, int index) {
+void MacroAssembler::LoadNativeContextSlot(int index, Register dst) {
   LoadMap(dst, cp);
   Ld(dst,
      FieldMemOperand(dst, Map::kConstructorOrBackPointerOrNativeContextOffset));
@@ -5607,12 +5533,9 @@ void MacroAssembler::AssertFunction(Register object) {
     SmiTst(object, t8);
     Check(ne, AbortReason::kOperandIsASmiAndNotAFunction, t8,
           Operand(zero_reg));
-    push(object);
-    LoadMap(object, object);
-    GetInstanceTypeRange(object, object, FIRST_JS_FUNCTION_TYPE, t8);
-    Check(ls, AbortReason::kOperandIsNotAFunction, t8,
-          Operand(LAST_JS_FUNCTION_TYPE - FIRST_JS_FUNCTION_TYPE));
-    pop(object);
+    GetObjectType(object, t8, t8);
+    Check(eq, AbortReason::kOperandIsNotAFunction, t8,
+          Operand(JS_FUNCTION_TYPE));
   }
 }
 

@@ -169,10 +169,7 @@ PromisePrototypeFinally(
       MessageTemplate::kCalledOnNonObject, 'Promise.prototype.finally');
 
   // 3. Let C be ? SpeciesConstructor(promise, %Promise%).
-  // This builtin is attached to JSFunction created by the bootstrapper so
-  // `context` is the native context.
-  check(Is<NativeContext>(context));
-  const nativeContext = UnsafeCast<NativeContext>(context);
+  const nativeContext = LoadNativeContext(context);
   const promiseFun = *NativeContextSlot(ContextSlot::PROMISE_FUNCTION_INDEX);
 
   let constructor: Constructor = UnsafeCast<Constructor>(promiseFun);

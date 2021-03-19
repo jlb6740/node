@@ -39,17 +39,7 @@ struct ControlTransferEntry {
   uint32_t target_arity;
 };
 
-struct CatchControlTransferEntry : public ControlTransferEntry {
-  int exception_index;
-  int target_control_index;
-};
-
-struct ControlTransferMap {
-  explicit ControlTransferMap(Zone* zone) : map(zone), catch_map(zone) {}
-
-  ZoneMap<pc_t, ControlTransferEntry> map;
-  ZoneMap<pc_t, ZoneVector<CatchControlTransferEntry>> catch_map;
-};
+using ControlTransferMap = ZoneMap<pc_t, ControlTransferEntry>;
 
 // An interpreter capable of executing WebAssembly.
 class WasmInterpreter {

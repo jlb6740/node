@@ -234,7 +234,7 @@ template <class T>
 class BindingsManager {
  public:
   base::Optional<Binding<T>*> TryLookup(const std::string& name) {
-    if (StartsWithSingleUnderscore(name)) {
+    if (name.length() >= 2 && name[0] == '_' && name[1] != '_') {
       Error("Trying to reference '", name, "' which is marked as unused.")
           .Throw();
     }
@@ -361,8 +361,6 @@ class LocalValue {
       : value(std::move(reference)) {}
   explicit LocalValue(std::string inaccessible_explanation)
       : inaccessible_explanation(std::move(inaccessible_explanation)) {}
-  explicit LocalValue(std::function<LocationReference()> lazy)
-      : lazy(std::move(lazy)) {}
 
   LocationReference GetLocationReference(Binding<LocalValue>* binding) {
     if (value) {
@@ -372,19 +370,16 @@ class LocalValue {
         return LocationReference::VariableAccess(ref.GetVisitResult(), binding);
       }
       return ref;
-    } else if (lazy) {
-      return (*lazy)();
     } else {
       Error("Cannot access ", binding->name(), ": ", inaccessible_explanation)
           .Throw();
     }
   }
 
-  bool IsAccessibleNonLazy() const { return value.has_value(); }
+  bool IsAccessible() const { return value.has_value(); }
 
  private:
   base::Optional<LocationReference> value;
-  base::Optional<std::function<LocationReference()>> lazy;
   std::string inaccessible_explanation;
 };
 
@@ -405,7 +400,7 @@ template <>
 inline bool Binding<LocalValue>::CheckWritten() const {
   // Do the check only for non-const variables and non struct types.
   auto binding = *manager_->current_bindings_[name_];
-  if (!binding->IsAccessibleNonLazy()) return false;
+  if (!binding->IsAccessible()) return false;
   const LocationReference& ref = binding->GetLocationReference(binding);
   if (!ref.IsVariableAccess()) return false;
   return !ref.GetVisitResult().type()->StructSupertype();
@@ -474,9 +469,9 @@ class ImplementationVisitor {
   InitializerResults VisitInitializerResults(
       const ClassType* class_type,
       const std::vector<NameAndExpression>& expressions);
-  LocationReference GenerateFieldReference(
-      VisitResult object, const Field& field, const ClassType* class_type,
-      bool treat_optional_as_indexed = false);
+  LocationReference GenerateFieldReference(VisitResult object,
+                                           const Field& field,
+                                           const ClassType* class_type);
   LocationReference GenerateFieldReferenceForInit(
       VisitResult object, const Field& field,
       const LayoutForInitialization& layout);
@@ -507,8 +502,6 @@ class ImplementationVisitor {
       bool ignore_stuct_field_constness = false,
       base::Optional<SourcePosition> pos = {});
   LocationReference GetLocationReference(ElementAccessExpression* expr);
-  LocationReference GenerateReferenceToItemInHeapSlice(LocationReference slice,
-                                                       VisitResult index);
 
   VisitResult GenerateFetchFromLocation(const LocationReference& reference);
 
@@ -568,8 +561,6 @@ class ImplementationVisitor {
 
   void BeginGeneratedFiles();
   void EndGeneratedFiles();
-  void BeginDebugMacrosFile();
-  void EndDebugMacrosFile();
 
   void GenerateImplementation(const std::string& dir);
 
@@ -777,31 +768,19 @@ class ImplementationVisitor {
 
   std::ostream& csa_ccfile() {
     if (auto* streams = CurrentFileStreams::Get()) {
-      switch (output_type_) {
-        case OutputType::kCSA:
-          return streams->csa_ccfile;
-        case OutputType::kCC:
-          return streams->class_definition_inline_headerfile_macro_definitions;
-        case OutputType::kCCDebug:
-          return debug_macros_cc_;
-        default:
-          UNREACHABLE();
-      }
+      return output_type_ == OutputType::kCSA
+                 ? streams->csa_ccfile
+                 : streams
+                       ->class_definition_inline_headerfile_macro_definitions;
     }
     return null_stream_;
   }
   std::ostream& csa_headerfile() {
     if (auto* streams = CurrentFileStreams::Get()) {
-      switch (output_type_) {
-        case OutputType::kCSA:
-          return streams->csa_headerfile;
-        case OutputType::kCC:
-          return streams->class_definition_inline_headerfile_macro_declarations;
-        case OutputType::kCCDebug:
-          return debug_macros_h_;
-        default:
-          UNREACHABLE();
-      }
+      return output_type_ == OutputType::kCSA
+                 ? streams->csa_headerfile
+                 : streams
+                       ->class_definition_inline_headerfile_macro_declarations;
     }
     return null_stream_;
   }
@@ -852,11 +831,6 @@ class ImplementationVisitor {
   // the value to load.
   std::unordered_map<const Expression*, const Identifier*>
       bitfield_expressions_;
-
-  // The contents of the debug macros output files. These contain all Torque
-  // macros that have been generated using the C++ backend with debug purpose.
-  std::stringstream debug_macros_cc_;
-  std::stringstream debug_macros_h_;
 
   OutputType output_type_ = OutputType::kCSA;
 };

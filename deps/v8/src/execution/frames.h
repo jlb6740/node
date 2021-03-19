@@ -5,7 +5,6 @@
 #ifndef V8_EXECUTION_FRAMES_H_
 #define V8_EXECUTION_FRAMES_H_
 
-#include "src/base/bounds.h"
 #include "src/codegen/safepoint-table.h"
 #include "src/common/globals.h"
 #include "src/handles/handles.h"
@@ -17,10 +16,9 @@
 // - CommonFrame
 //   - CommonFrameWithJSLinkage
 //     - JavaScriptFrame (aka StandardFrame)
-//       - UnoptimizedFrame
-//         - InterpretedFrame
-//         - BaselineFrame
+//       - InterpretedFrame
 //       - OptimizedFrame
+//       - ArgumentsAdaptorFrame (technically a TypedFrame)
 //     - TypedFrameWithJSLinkage
 //       - BuiltinFrame
 //       - JavaScriptBuiltinContinuationFrame
@@ -96,16 +94,15 @@ class StackHandler {
   V(ENTRY, EntryFrame)                                                    \
   V(CONSTRUCT_ENTRY, ConstructEntryFrame)                                 \
   V(EXIT, ExitFrame)                                                      \
-  IF_WASM(V, WASM, WasmFrame)                                             \
-  IF_WASM(V, WASM_TO_JS, WasmToJsFrame)                                   \
-  IF_WASM(V, JS_TO_WASM, JsToWasmFrame)                                   \
-  IF_WASM(V, WASM_DEBUG_BREAK, WasmDebugBreakFrame)                       \
-  IF_WASM(V, C_WASM_ENTRY, CWasmEntryFrame)                               \
-  IF_WASM(V, WASM_EXIT, WasmExitFrame)                                    \
-  IF_WASM(V, WASM_COMPILE_LAZY, WasmCompileLazyFrame)                     \
-  V(INTERPRETED, InterpretedFrame)                                        \
-  V(BASELINE, BaselineFrame)                                              \
   V(OPTIMIZED, OptimizedFrame)                                            \
+  V(WASM, WasmFrame)                                                      \
+  V(WASM_TO_JS, WasmToJsFrame)                                            \
+  V(JS_TO_WASM, JsToWasmFrame)                                            \
+  V(WASM_DEBUG_BREAK, WasmDebugBreakFrame)                                \
+  V(C_WASM_ENTRY, CWasmEntryFrame)                                        \
+  V(WASM_EXIT, WasmExitFrame)                                             \
+  V(WASM_COMPILE_LAZY, WasmCompileLazyFrame)                              \
+  V(INTERPRETED, InterpretedFrame)                                        \
   V(STUB, StubFrame)                                                      \
   V(BUILTIN_CONTINUATION, BuiltinContinuationFrame)                       \
   V(JAVA_SCRIPT_BUILTIN_CONTINUATION, JavaScriptBuiltinContinuationFrame) \
@@ -113,6 +110,7 @@ class StackHandler {
     JavaScriptBuiltinContinuationWithCatchFrame)                          \
   V(INTERNAL, InternalFrame)                                              \
   V(CONSTRUCT, ConstructFrame)                                            \
+  V(ARGUMENTS_ADAPTOR, ArgumentsAdaptorFrame)                             \
   V(BUILTIN, BuiltinFrame)                                                \
   V(BUILTIN_EXIT, BuiltinExitFrame)                                       \
   V(NATIVE, NativeFrame)
@@ -210,20 +208,11 @@ class StackFrame {
   bool is_construct_entry() const { return type() == CONSTRUCT_ENTRY; }
   bool is_exit() const { return type() == EXIT; }
   bool is_optimized() const { return type() == OPTIMIZED; }
-  bool is_unoptimized() const {
-    STATIC_ASSERT(BASELINE == INTERPRETED + 1);
-    return base::IsInRange(type(), INTERPRETED, BASELINE);
-  }
   bool is_interpreted() const { return type() == INTERPRETED; }
-  bool is_baseline() const { return type() == BASELINE; }
-#if V8_ENABLE_WEBASSEMBLY
   bool is_wasm() const { return this->type() == WASM; }
-  bool is_c_wasm_entry() const { return type() == C_WASM_ENTRY; }
   bool is_wasm_compile_lazy() const { return type() == WASM_COMPILE_LAZY; }
   bool is_wasm_debug_break() const { return type() == WASM_DEBUG_BREAK; }
-  bool is_wasm_to_js() const { return type() == WASM_TO_JS; }
-  bool is_js_to_wasm() const { return type() == JS_TO_WASM; }
-#endif  // V8_ENABLE_WEBASSEMBLY
+  bool is_arguments_adaptor() const { return type() == ARGUMENTS_ADAPTOR; }
   bool is_builtin() const { return type() == BUILTIN; }
   bool is_internal() const { return type() == INTERNAL; }
   bool is_builtin_continuation() const {
@@ -238,12 +227,12 @@ class StackFrame {
   bool is_construct() const { return type() == CONSTRUCT; }
   bool is_builtin_exit() const { return type() == BUILTIN_EXIT; }
 
-  static bool IsJavaScript(Type t) {
-    STATIC_ASSERT(INTERPRETED + 1 == BASELINE);
-    STATIC_ASSERT(BASELINE + 1 == OPTIMIZED);
-    return t >= INTERPRETED && t <= OPTIMIZED;
+  bool is_java_script() const {
+    Type type = this->type();
+    return (type == OPTIMIZED) || (type == INTERPRETED);
   }
-  bool is_java_script() const { return IsJavaScript(type()); }
+  bool is_wasm_to_js() const { return type() == WASM_TO_JS; }
+  bool is_js_to_wasm() const { return type() == JS_TO_WASM; }
 
   // Accessors.
   Address sp() const { return state_.sp; }
@@ -286,8 +275,8 @@ class StackFrame {
   V8_EXPORT_PRIVATE Code LookupCode() const;
 
   virtual void Iterate(RootVisitor* v) const = 0;
-  void IteratePc(RootVisitor* v, Address* pc_address,
-                 Address* constant_pool_address, Code holder) const;
+  static void IteratePc(RootVisitor* v, Address* pc_address,
+                        Address* constant_pool_address, Code holder);
 
   // Sets a callback function for return-address rewriting profilers
   // to resolve the location of a return address to the location of the
@@ -351,7 +340,7 @@ class V8_EXPORT_PRIVATE FrameSummary {
 // Subclasses for the different summary kinds:
 #define FRAME_SUMMARY_VARIANTS(F)                                          \
   F(JAVA_SCRIPT, JavaScriptFrameSummary, java_script_summary_, JavaScript) \
-  IF_WASM(F, WASM, WasmFrameSummary, wasm_summary_, Wasm)
+  F(WASM, WasmFrameSummary, wasm_summary_, Wasm)
 
 #define FRAME_SUMMARY_KIND(kind, type, field, desc) kind,
   enum Kind { FRAME_SUMMARY_VARIANTS(FRAME_SUMMARY_KIND) };
@@ -401,7 +390,6 @@ class V8_EXPORT_PRIVATE FrameSummary {
     Handle<FixedArray> parameters_;
   };
 
-#if V8_ENABLE_WEBASSEMBLY
   class WasmFrameSummary : public FrameSummaryBase {
    public:
     WasmFrameSummary(Isolate*, Handle<WasmInstanceObject>, wasm::WasmCode*,
@@ -428,7 +416,6 @@ class V8_EXPORT_PRIVATE FrameSummary {
     wasm::WasmCode* const code_;
     int code_offset_;
   };
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 #define FRAME_SUMMARY_CONS(kind, type, field, desc) \
   FrameSummary(type summ) : field(summ) {}  // NOLINT
@@ -522,6 +509,10 @@ class CommonFrame : public StackFrame {
   // Returns the address of the n'th expression stack element.
   virtual Address GetExpressionAddress(int n) const;
 
+  // Determines if the standard frame for the given frame pointer is
+  // an arguments adaptor frame.
+  static inline bool IsArgumentsAdaptorFrame(Address fp);
+
   // Used by OptimizedFrames and StubFrames.
   void IterateCompiledFrame(RootVisitor* v) const;
 
@@ -532,7 +523,7 @@ class CommonFrame : public StackFrame {
 
 class TypedFrame : public CommonFrame {
  public:
-  Code unchecked_code() const override { return {}; }
+  Code unchecked_code() const override { return Code(); }
   void Iterate(RootVisitor* v) const override { IterateCompiledFrame(v); }
 
  protected:
@@ -549,7 +540,9 @@ class CommonFrameWithJSLinkage : public CommonFrame {
   virtual Object GetParameter(int index) const;
   virtual int ComputeParametersCount() const;
   Handle<FixedArray> GetParameters() const;
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   virtual int GetActualArgumentCount() const;
+#endif
 
   // Determine the code for the frame.
   Code unchecked_code() const override;
@@ -557,7 +550,7 @@ class CommonFrameWithJSLinkage : public CommonFrame {
   // Lookup exception handler for current {pc}, returns -1 if none found. Also
   // returns data associated with the handler site specific to the frame type:
   //  - OptimizedFrame  : Data is not used and will not return a value.
-  //  - UnoptimizedFrame: Data is the register index holding the context.
+  //  - InterpretedFrame: Data is the register index holding the context.
   virtual int LookupExceptionHandlerInTable(
       int* data, HandlerTable::CatchPrediction* prediction);
 
@@ -593,7 +586,10 @@ class JavaScriptFrame : public CommonFrameWithJSLinkage {
   Object unchecked_function() const;
   Script script() const;
   Object context() const override;
+
+#ifdef V8_NO_ARGUMENTS_ADAPTOR
   int GetActualArgumentCount() const override;
+#endif
 
   inline void set_receiver(Object value);
 
@@ -606,6 +602,11 @@ class JavaScriptFrame : public CommonFrameWithJSLinkage {
   // Determines whether this frame includes inlined activations. To get details
   // about the inlined frames use {GetFunctions} and {Summarize}.
   bool HasInlinedFrames() const;
+
+  // Check if this frame has "adapted" arguments in the sense that the
+  // actual passed arguments are available in an arguments adaptor
+  // frame below it on the stack.
+  inline bool has_adapted_arguments() const;
 
   // Garbage collection support.
   void Iterate(RootVisitor* v) const override;
@@ -779,7 +780,7 @@ class BuiltinExitFrame : public ExitFrame {
   inline Object new_target_slot_object() const;
 
   friend class StackFrameIteratorBase;
-  friend class StackTraceBuilder;
+  friend class FrameArrayBuilder;
 };
 
 class StubFrame : public TypedFrame {
@@ -833,11 +834,10 @@ class OptimizedFrame : public JavaScriptFrame {
   Object StackSlotAt(int index) const;
 };
 
-// An unoptimized frame is a JavaScript frame that is executing bytecode. It
-// may be executing it using the interpreter, or via baseline code compiled from
-// the bytecode.
-class UnoptimizedFrame : public JavaScriptFrame {
+class InterpretedFrame : public JavaScriptFrame {
  public:
+  Type type() const override { return INTERPRETED; }
+
   // Accessors.
   int position() const override;
 
@@ -846,24 +846,35 @@ class UnoptimizedFrame : public JavaScriptFrame {
       int* data, HandlerTable::CatchPrediction* prediction) override;
 
   // Returns the current offset into the bytecode stream.
-  virtual int GetBytecodeOffset() const = 0;
+  int GetBytecodeOffset() const;
+
+  // Updates the current offset into the bytecode stream, mainly used for stack
+  // unwinding to continue execution at a different bytecode offset.
+  void PatchBytecodeOffset(int new_offset);
 
   // Returns the frame's current bytecode array.
   BytecodeArray GetBytecodeArray() const;
 
+  // Updates the frame's BytecodeArray with |bytecode_array|. Used by the
+  // debugger to swap execution onto a BytecodeArray patched with breakpoints.
+  void PatchBytecodeArray(BytecodeArray bytecode_array);
+
   // Access to the interpreter register file for this frame.
   Object ReadInterpreterRegister(int register_index) const;
+  void WriteInterpreterRegister(int register_index, Object value);
 
   // Build a list with summaries for this frame including all inlined frames.
   void Summarize(std::vector<FrameSummary>* frames) const override;
 
-  static UnoptimizedFrame* cast(StackFrame* frame) {
-    DCHECK(frame->is_unoptimized());
-    return static_cast<UnoptimizedFrame*>(frame);
+  static int GetBytecodeOffset(Address fp);
+
+  static InterpretedFrame* cast(StackFrame* frame) {
+    DCHECK(frame->is_interpreted());
+    return static_cast<InterpretedFrame*>(frame);
   }
 
  protected:
-  inline explicit UnoptimizedFrame(StackFrameIteratorBase* iterator);
+  inline explicit InterpretedFrame(StackFrameIteratorBase* iterator);
 
   Address GetExpressionAddress(int n) const override;
 
@@ -871,57 +882,33 @@ class UnoptimizedFrame : public JavaScriptFrame {
   friend class StackFrameIteratorBase;
 };
 
-class InterpretedFrame : public UnoptimizedFrame {
+// Arguments adaptor frames are automatically inserted below
+// JavaScript frames when the actual number of parameters does not
+// match the formal number of parameters.
+// NOTE: this inheritance is wrong, an ArgumentsAdaptorFrame should be
+// of type TypedFrame, but due to FrameInspector::javascript_frame(),
+// it needs to be seen as JavaScriptFrame.
+// This frame will however be deleted soon.
+class ArgumentsAdaptorFrame : public JavaScriptFrame {
  public:
-  Type type() const override { return INTERPRETED; }
+  Type type() const override { return ARGUMENTS_ADAPTOR; }
 
-  // Returns the current offset into the bytecode stream.
-  int GetBytecodeOffset() const override;
+  // Determine the code for the frame.
+  Code unchecked_code() const override;
 
-  // Updates the current offset into the bytecode stream, mainly used for stack
-  // unwinding to continue execution at a different bytecode offset.
-  void PatchBytecodeOffset(int new_offset);
-
-  // Updates the frame's BytecodeArray with |bytecode_array|. Used by the
-  // debugger to swap execution onto a BytecodeArray patched with breakpoints.
-  void PatchBytecodeArray(BytecodeArray bytecode_array);
-
-  static InterpretedFrame* cast(StackFrame* frame) {
-    DCHECK(frame->is_interpreted());
-    return static_cast<InterpretedFrame*>(frame);
-  }
-  static const InterpretedFrame* cast(const StackFrame* frame) {
-    DCHECK(frame->is_interpreted());
-    return static_cast<const InterpretedFrame*>(frame);
+  static ArgumentsAdaptorFrame* cast(StackFrame* frame) {
+    DCHECK(frame->is_arguments_adaptor());
+    return static_cast<ArgumentsAdaptorFrame*>(frame);
   }
 
-  static int GetBytecodeOffset(Address fp);
+  int ComputeParametersCount() const override;
+
+  // Printing support.
+  void Print(StringStream* accumulator, PrintMode mode,
+             int index) const override;
 
  protected:
-  inline explicit InterpretedFrame(StackFrameIteratorBase* iterator);
-
- private:
-  friend class StackFrameIteratorBase;
-};
-
-class BaselineFrame : public UnoptimizedFrame {
- public:
-  Type type() const override { return BASELINE; }
-
-  // Returns the current offset into the bytecode stream.
-  int GetBytecodeOffset() const override;
-
-  intptr_t GetPCForBytecodeOffset(int lookup_offset) const;
-
-  void PatchContext(Context value);
-
-  static BaselineFrame* cast(StackFrame* frame) {
-    DCHECK(frame->is_baseline());
-    return static_cast<BaselineFrame*>(frame);
-  }
-
- protected:
-  inline explicit BaselineFrame(StackFrameIteratorBase* iterator);
+  inline explicit ArgumentsAdaptorFrame(StackFrameIteratorBase* iterator);
 
  private:
   friend class StackFrameIteratorBase;
@@ -948,7 +935,6 @@ class BuiltinFrame final : public TypedFrameWithJSLinkage {
   friend class StackFrameIteratorBase;
 };
 
-#if V8_ENABLE_WEBASSEMBLY
 class WasmFrame : public TypedFrame {
  public:
   Type type() const override { return WASM; }
@@ -959,6 +945,9 @@ class WasmFrame : public TypedFrame {
 
   // Lookup exception handler for current {pc}, returns -1 if none found.
   int LookupExceptionHandlerInTable();
+
+  // Determine the code for the frame.
+  Code unchecked_code() const override;
 
   // Accessors.
   V8_EXPORT_PRIVATE WasmInstanceObject wasm_instance() const;
@@ -1080,7 +1069,6 @@ class WasmCompileLazyFrame : public TypedFrame {
  private:
   friend class StackFrameIteratorBase;
 };
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 class InternalFrame : public TypedFrame {
  public:
@@ -1088,6 +1076,9 @@ class InternalFrame : public TypedFrame {
 
   // Garbage collection support.
   void Iterate(RootVisitor* v) const override;
+
+  // Determine the code for the frame.
+  Code unchecked_code() const override;
 
   static InternalFrame* cast(StackFrame* frame) {
     DCHECK(frame->is_internal());
@@ -1232,7 +1223,6 @@ class StackFrameIterator : public StackFrameIteratorBase {
     return frame_;
   }
   V8_EXPORT_PRIVATE void Advance();
-  StackFrame* Reframe();
 
  private:
   // Go back to the first frame.
@@ -1250,7 +1240,6 @@ class JavaScriptFrameIterator {
   bool done() const { return iterator_.done(); }
   V8_EXPORT_PRIVATE void Advance();
   void AdvanceOneFrame() { iterator_.Advance(); }
-  inline JavaScriptFrame* Reframe();
 
  private:
   StackFrameIterator iterator_;
@@ -1270,12 +1259,9 @@ class V8_EXPORT_PRIVATE StackTraceFrameIterator {
   int FrameFunctionCount() const;
 
   inline CommonFrame* frame() const;
-  inline CommonFrame* Reframe();
 
   inline bool is_javascript() const;
-#if V8_ENABLE_WEBASSEMBLY
   inline bool is_wasm() const;
-#endif  // V8_ENABLE_WEBASSEMBLY
   inline JavaScriptFrame* javascript_frame() const;
 
  private:
@@ -1348,22 +1334,20 @@ enum class BuiltinContinuationMode {
   JAVASCRIPT_HANDLE_EXCEPTION  // JavaScriptBuiltinContinuationWithCatchFrame
 };
 
-class UnoptimizedFrameInfo {
+class InterpretedFrameInfo {
  public:
-  static UnoptimizedFrameInfo Precise(int parameters_count_with_receiver,
+  static InterpretedFrameInfo Precise(int parameters_count_with_receiver,
                                       int translation_height, bool is_topmost,
                                       bool pad_arguments) {
     return {parameters_count_with_receiver, translation_height, is_topmost,
             pad_arguments, FrameInfoKind::kPrecise};
   }
 
-  static UnoptimizedFrameInfo Conservative(int parameters_count_with_receiver,
+  static InterpretedFrameInfo Conservative(int parameters_count_with_receiver,
                                            int locals_count) {
     return {parameters_count_with_receiver, locals_count, false, true,
             FrameInfoKind::kConservative};
   }
-
-  static uint32_t GetStackSizeForAdditionalArguments(int parameters_count);
 
   uint32_t register_stack_slot_count() const {
     return register_stack_slot_count_;
@@ -1374,11 +1358,33 @@ class UnoptimizedFrameInfo {
   uint32_t frame_size_in_bytes() const { return frame_size_in_bytes_; }
 
  private:
-  UnoptimizedFrameInfo(int parameters_count_with_receiver,
+  InterpretedFrameInfo(int parameters_count_with_receiver,
                        int translation_height, bool is_topmost,
                        bool pad_arguments, FrameInfoKind frame_info_kind);
 
   uint32_t register_stack_slot_count_;
+  uint32_t frame_size_in_bytes_without_fixed_;
+  uint32_t frame_size_in_bytes_;
+};
+
+class ArgumentsAdaptorFrameInfo {
+ public:
+  static ArgumentsAdaptorFrameInfo Precise(int translation_height) {
+    return ArgumentsAdaptorFrameInfo{translation_height};
+  }
+
+  static ArgumentsAdaptorFrameInfo Conservative(int parameters_count) {
+    return ArgumentsAdaptorFrameInfo{parameters_count};
+  }
+
+  uint32_t frame_size_in_bytes_without_fixed() const {
+    return frame_size_in_bytes_without_fixed_;
+  }
+  uint32_t frame_size_in_bytes() const { return frame_size_in_bytes_; }
+
+ private:
+  explicit ArgumentsAdaptorFrameInfo(int translation_height);
+
   uint32_t frame_size_in_bytes_without_fixed_;
   uint32_t frame_size_in_bytes_;
 };

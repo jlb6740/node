@@ -7,7 +7,6 @@
 
 #include "src/base/bits.h"
 #include "src/base/macros.h"
-#include "src/codegen/ia32/register-ia32.h"
 #include "src/execution/frame-constants.h"
 
 namespace v8 {
@@ -52,13 +51,10 @@ class WasmCompileLazyFrameConstants : public TypedFrameConstants {
 // registers (see liftoff-assembler-defs.h).
 class WasmDebugBreakFrameConstants : public TypedFrameConstants {
  public:
-  // Omit ebx, which is the root register.
-  static constexpr RegList kPushedGpRegs =
-      Register::ListOf(eax, ecx, edx, esi, edi);
-
-  // Omit xmm7, which is the kScratchDoubleReg.
-  static constexpr RegList kPushedFpRegs =
-      DoubleRegister::ListOf(xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6);
+  // {eax, ecx, edx, esi, edi}
+  static constexpr uint32_t kPushedGpRegs = 0b11000111;
+  // {xmm0, xmm1, xmm2, xmm3, xmm4, xmm5, xmm6}
+  static constexpr uint32_t kPushedFpRegs = 0b01111111;
 
   static constexpr int kNumPushedGpRegisters =
       base::bits::CountPopulation(kPushedGpRegs);

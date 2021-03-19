@@ -34,8 +34,7 @@ class Symbolizer;
   V(CODE_MOVE, CodeMoveEventRecord)              \
   V(CODE_DISABLE_OPT, CodeDisableOptEventRecord) \
   V(CODE_DEOPT, CodeDeoptEventRecord)            \
-  V(REPORT_BUILTIN, ReportBuiltinEventRecord)    \
-  V(BYTECODE_FLUSH, BytecodeFlushEventRecord)
+  V(REPORT_BUILTIN, ReportBuiltinEventRecord)
 
 class CodeEventRecord {
  public:
@@ -110,13 +109,6 @@ class TickSampleEventRecord {
 
   unsigned order;
   TickSample sample;
-};
-
-class BytecodeFlushEventRecord : public CodeEventRecord {
- public:
-  Address instruction_start;
-
-  V8_INLINE void UpdateCodeMap(CodeMap* code_map);
 };
 
 // A record type for sending code events (e.g. create, move, delete) to the
@@ -328,12 +320,10 @@ class V8_EXPORT_PRIVATE CpuProfiler {
   void set_sampling_interval(base::TimeDelta value);
   void set_use_precise_sampling(bool);
   void CollectSample();
-  StartProfilingStatus StartProfiling(
-      const char* title, CpuProfilingOptions options = {},
-      std::unique_ptr<DiscardedSamplesDelegate> delegate = nullptr);
-  StartProfilingStatus StartProfiling(
-      String title, CpuProfilingOptions options = {},
-      std::unique_ptr<DiscardedSamplesDelegate> delegate = nullptr);
+  StartProfilingStatus StartProfiling(const char* title,
+                                      CpuProfilingOptions options = {});
+  StartProfilingStatus StartProfiling(String title,
+                                      CpuProfilingOptions options = {});
 
   CpuProfile* StopProfiling(const char* title);
   CpuProfile* StopProfiling(String title);

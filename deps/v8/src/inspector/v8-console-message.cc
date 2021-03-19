@@ -208,12 +208,7 @@ void V8ConsoleMessage::setLocation(const String16& url, unsigned lineNumber,
                                    unsigned columnNumber,
                                    std::unique_ptr<V8StackTraceImpl> stackTrace,
                                    int scriptId) {
-  const char* dataURIPrefix = "data:";
-  if (url.substring(0, strlen(dataURIPrefix)) == dataURIPrefix) {
-    m_url = String16();
-  } else {
-    m_url = url;
-  }
+  m_url = url;
   m_lineNumber = lineNumber;
   m_columnNumber = columnNumber;
   m_stackTrace = std::move(stackTrace);

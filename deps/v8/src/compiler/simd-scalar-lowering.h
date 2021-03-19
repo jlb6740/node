@@ -11,7 +11,6 @@
 #include "src/compiler/machine-graph.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node-marker.h"
-#include "src/compiler/simplified-operator.h"
 #include "src/zone/zone-containers.h"
 
 namespace v8 {
@@ -25,7 +24,6 @@ namespace compiler {
 class SimdScalarLowering {
  public:
   SimdScalarLowering(MachineGraph* mcgraph,
-                     SimplifiedOperatorBuilder* simplified,
                      Signature<MachineRepresentation>* signature);
 
   void LowerGraph();
@@ -66,7 +64,6 @@ class SimdScalarLowering {
   Graph* graph() const { return mcgraph_->graph(); }
   MachineOperatorBuilder* machine() const { return mcgraph_->machine(); }
   CommonOperatorBuilder* common() const { return mcgraph_->common(); }
-  SimplifiedOperatorBuilder* simplified() const { return simplified_; }
   Signature<MachineRepresentation>* signature() const { return signature_; }
 
   void LowerNode(Node* node);
@@ -134,7 +131,6 @@ class SimdScalarLowering {
   Node* ExtendNode(Node* node, SimdType rep_type, bool is_signed);
 
   MachineGraph* const mcgraph_;
-  SimplifiedOperatorBuilder* const simplified_;
   NodeMarker<State> state_;
   ZoneDeque<NodeState> stack_;
   Replacement* replacements_;

@@ -171,7 +171,7 @@ bool String::MakeExternal(v8::String::ExternalStringResource* resource) {
   }
 
   base::SharedMutexGuard<base::kExclusive> shared_mutex_guard(
-      isolate->internalized_string_access());
+      isolate->string_access());
   // Morph the string to an external string by replacing the map and
   // reinitializing the fields.  This won't work if the space the existing
   // string occupies is too small for a regular external string.  Instead, we
@@ -182,7 +182,9 @@ bool String::MakeExternal(v8::String::ExternalStringResource* resource) {
   ReadOnlyRoots roots(isolate);
   if (size < ExternalString::kSizeOfAllExternalStrings) {
     if (is_internalized) {
-      new_map = roots.uncached_external_internalized_string_map();
+      // We do not support this case since accessing internal external
+      // uncached strings is not thread-safe.
+      return false;
     } else {
       new_map = roots.uncached_external_string_map();
     }
@@ -249,7 +251,7 @@ bool String::MakeExternal(v8::String::ExternalOneByteStringResource* resource) {
   }
 
   base::SharedMutexGuard<base::kExclusive> shared_mutex_guard(
-      isolate->internalized_string_access());
+      isolate->string_access());
   // Morph the string to an external string by replacing the map and
   // reinitializing the fields.  This won't work if the space the existing
   // string occupies is too small for a regular external string.  Instead, we
@@ -259,9 +261,13 @@ bool String::MakeExternal(v8::String::ExternalOneByteStringResource* resource) {
   Map new_map;
   ReadOnlyRoots roots(isolate);
   if (size < ExternalString::kSizeOfAllExternalStrings) {
-    new_map = is_internalized
-                  ? roots.uncached_external_one_byte_internalized_string_map()
-                  : roots.uncached_external_one_byte_string_map();
+    if (is_internalized) {
+      // We do not support this case since accessing internal external
+      // uncached strings is not thread-safe.
+      return false;
+    } else {
+      new_map = roots.uncached_external_one_byte_string_map();
+    }
   } else {
     new_map = is_internalized
                   ? roots.external_one_byte_internalized_string_map()
@@ -308,6 +314,11 @@ bool String::SupportsExternalization() {
 #else
   DCHECK_LE(ExternalString::kUncachedSize, this->Size());
 #endif
+
+  if (this->Size() < ExternalString::kSizeOfAllExternalStrings &&
+      this->IsInternalizedString()) {
+    return false;
+  }
 
   Isolate* isolate = GetIsolateFromWritableObject(*this);
   return !isolate->heap()->IsInGCPostProcessing();
@@ -773,7 +784,7 @@ template Handle<FixedArray> String::CalculateLineEnds(LocalIsolate* isolate,
                                                       Handle<String> src,
                                                       bool include_ending_line);
 
-bool String::SlowEquals(String other) const {
+bool String::SlowEquals(String other) {
   DisallowGarbageCollection no_gc;
   // Fast check: negative check with lengths.
   int len = length();
@@ -825,7 +836,6 @@ bool String::SlowEquals(String other) const {
   return comparator.Equals(*this, other);
 }
 
-// static
 bool String::SlowEquals(Isolate* isolate, Handle<String> one,
                         Handle<String> two) {
   // Fast check: negative check with lengths.
@@ -1438,7 +1448,7 @@ void SeqTwoByteString::clear_padding() {
          SizeFor(length()) - data_size);
 }
 
-uint16_t ConsString::Get(int index) const {
+uint16_t ConsString::Get(int index) {
   DCHECK(index >= 0 && index < this->length());
 
   // Check for a flattened cons string
@@ -1467,11 +1477,9 @@ uint16_t ConsString::Get(int index) const {
   UNREACHABLE();
 }
 
-uint16_t ThinString::Get(int index) const { return actual().Get(index); }
+uint16_t ThinString::Get(int index) { return actual().Get(index); }
 
-uint16_t SlicedString::Get(int index) const {
-  return parent().Get(offset() + index);
-}
+uint16_t SlicedString::Get(int index) { return parent().Get(offset() + index); }
 
 int ExternalString::ExternalPayloadSize() const {
   int length_multiplier = IsTwoByteRepresentation() ? i::kShortSize : kCharSize;

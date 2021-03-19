@@ -396,10 +396,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CHECK_EQ(1, input_count);
       // Parameter has an input that produces enough values.
       int const index = ParameterIndexOf(node->op());
-      StartNode start{NodeProperties::GetValueInput(node, 0)};
+      Node* const start = NodeProperties::GetValueInput(node, 0);
+      CHECK_EQ(IrOpcode::kStart, start->opcode());
       // Currently, parameter indices start at -1 instead of 0.
       CHECK_LE(-1, index);
-      CHECK_LE(index, start.LastParameterIndex_MaybeNonStandardLayout());
+      CHECK_LT(index + 1, start->op()->ValueOutputCount());
       CheckTypeIs(node, Type::Any());
       break;
     }
@@ -535,25 +536,29 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CHECK_EQ(0, control_count);
       CHECK_EQ(0, effect_count);
       CHECK_EQ(6, input_count);
-
-      FrameState state{node};
-      CHECK(state.parameters()->opcode() == IrOpcode::kStateValues ||
-            state.parameters()->opcode() == IrOpcode::kTypedStateValues);
-      CHECK(state.locals()->opcode() == IrOpcode::kStateValues ||
-            state.locals()->opcode() == IrOpcode::kTypedStateValues);
+      // Check that the parameters and registers are kStateValues or
+      // kTypedStateValues.
+      for (int i = 0; i < 2; ++i) {
+        CHECK(NodeProperties::GetValueInput(node, i)->opcode() ==
+                  IrOpcode::kStateValues ||
+              NodeProperties::GetValueInput(node, i)->opcode() ==
+                  IrOpcode::kTypedStateValues);
+      }
 
       // Checks that the state input is empty for all but kInterpretedFunction
       // frames, where it should have size one.
       {
-        const FrameStateFunctionInfo* func_info =
-            state.frame_state_info().function_info();
+        const FrameStateInfo& state_info = FrameStateInfoOf(node->op());
+        const FrameStateFunctionInfo* func_info = state_info.function_info();
         CHECK_EQ(func_info->parameter_count(),
-                 StateValuesAccess(state.parameters()).size());
-        CHECK_EQ(func_info->local_count(),
-                 StateValuesAccess(state.locals()).size());
+                 StateValuesAccess(node->InputAt(kFrameStateParametersInput))
+                     .size());
+        CHECK_EQ(
+            func_info->local_count(),
+            StateValuesAccess(node->InputAt(kFrameStateLocalsInput)).size());
 
-        Node* accumulator = state.stack();
-        if (func_info->type() == FrameStateType::kUnoptimizedFunction) {
+        Node* accumulator = node->InputAt(kFrameStateStackInput);
+        if (func_info->type() == FrameStateType::kInterpretedFunction) {
           // The accumulator (InputAt(2)) cannot be kStateValues.
           // It can be kTypedStateValues (to signal the type) and it can have
           // other Node types including that of the optimized_out HeapConstant.
@@ -1227,7 +1232,11 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       break;
     case IrOpcode::kArgumentsLength:
     case IrOpcode::kRestLength:
+      CheckValueInputIs(node, 0, Type::ExternalPointer());
       CheckTypeIs(node, TypeCache::Get()->kArgumentsLengthType);
+      break;
+    case IrOpcode::kArgumentsFrame:
+      CheckTypeIs(node, Type::ExternalPointer());
       break;
     case IrOpcode::kNewDoubleElements:
     case IrOpcode::kNewSmiOrObjectElements:
@@ -1236,7 +1245,8 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckTypeIs(node, Type::OtherInternal());
       break;
     case IrOpcode::kNewArgumentsElements:
-      CheckValueInputIs(node, 0,
+      CheckValueInputIs(node, 0, Type::ExternalPointer());
+      CheckValueInputIs(node, 1,
                         Type::Range(0.0, FixedArray::kMaxLength, zone));
       CheckTypeIs(node, Type::OtherInternal());
       break;
@@ -1617,13 +1627,6 @@ void Verifier::Visitor::Check(Node* node, const AllNodes& all) {
       CheckValueInputIs(node, 0, Type::ExternalPointer());  // callee
       CheckValueInputIs(node, 1, Type::Any());              // receiver
       break;
-#if V8_ENABLE_WEBASSEMBLY
-    case IrOpcode::kJSWasmCall:
-      CHECK_GE(value_count, 3);
-      CheckTypeIs(node, Type::Any());
-      CheckValueInputIs(node, 0, Type::Any());  // callee
-      break;
-#endif  // V8_ENABLE_WEBASSEMBLY
 
     // Machine operators
     // -----------------------

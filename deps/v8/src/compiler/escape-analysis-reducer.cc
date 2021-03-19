@@ -159,12 +159,9 @@ Node* EscapeAnalysisReducer::ReduceDeoptState(Node* node, Node* effect,
     // This input order is important to match the DFS traversal used in the
     // instruction selector. Otherwise, the instruction selector might find a
     // duplicate node before the original one.
-    for (int input_id : {FrameState::kFrameStateOuterStateInput,
-                         FrameState::kFrameStateFunctionInput,
-                         FrameState::kFrameStateParametersInput,
-                         FrameState::kFrameStateContextInput,
-                         FrameState::kFrameStateLocalsInput,
-                         FrameState::kFrameStateStackInput}) {
+    for (int input_id : {kFrameStateOuterStateInput, kFrameStateFunctionInput,
+                         kFrameStateParametersInput, kFrameStateContextInput,
+                         kFrameStateLocalsInput, kFrameStateStackInput}) {
       Node* input = node->InputAt(input_id);
       new_node.ReplaceInput(ReduceDeoptState(input, effect, deduplicator),
                             input_id);
@@ -229,7 +226,9 @@ void EscapeAnalysisReducer::Finalize() {
                            ? params.formal_parameter_count()
                            : 0;
 
-    Node* arguments_length = NodeProperties::GetValueInput(node, 0);
+    Node* arguments_frame = NodeProperties::GetValueInput(node, 0);
+    if (arguments_frame->opcode() != IrOpcode::kArgumentsFrame) continue;
+    Node* arguments_length = NodeProperties::GetValueInput(node, 1);
     if (arguments_length->opcode() != IrOpcode::kArgumentsLength) continue;
 
     Node* arguments_length_state = nullptr;
@@ -329,10 +328,7 @@ void EscapeAnalysisReducer::Finalize() {
             }
             NodeProperties::SetType(offset,
                                     TypeCache::Get()->kArgumentsLengthType);
-            Node* frame = jsgraph()->graph()->NewNode(
-                jsgraph()->machine()->LoadFramePointer());
-            NodeProperties::SetType(frame, Type::ExternalPointer());
-            NodeProperties::ReplaceValueInput(load, frame, 0);
+            NodeProperties::ReplaceValueInput(load, arguments_frame, 0);
             NodeProperties::ReplaceValueInput(load, offset, 1);
             NodeProperties::ChangeOp(
                 load, jsgraph()->simplified()->LoadStackArgument());
@@ -341,7 +337,7 @@ void EscapeAnalysisReducer::Finalize() {
           case IrOpcode::kLoadField: {
             DCHECK_EQ(FieldAccessOf(load->op()).offset,
                       FixedArray::kLengthOffset);
-            Node* length = NodeProperties::GetValueInput(node, 0);
+            Node* length = NodeProperties::GetValueInput(node, 1);
             ReplaceWithValue(load, length);
             break;
           }

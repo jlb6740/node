@@ -21,23 +21,19 @@ class UnaryOpAssembler final {
 
   TNode<Object> Generate_BitwiseNotWithFeedback(
       TNode<Context> context, TNode<Object> value, TNode<UintPtrT> slot,
-      TNode<HeapObject> maybe_feedback_vector,
-      UpdateFeedbackMode update_feedback_mode);
+      TNode<HeapObject> maybe_feedback_vector);
 
   TNode<Object> Generate_DecrementWithFeedback(
       TNode<Context> context, TNode<Object> value, TNode<UintPtrT> slot,
-      TNode<HeapObject> maybe_feedback_vector,
-      UpdateFeedbackMode update_feedback_mode);
+      TNode<HeapObject> maybe_feedback_vector);
 
   TNode<Object> Generate_IncrementWithFeedback(
       TNode<Context> context, TNode<Object> value, TNode<UintPtrT> slot,
-      TNode<HeapObject> maybe_feedback_vector,
-      UpdateFeedbackMode update_feedback_mode);
+      TNode<HeapObject> maybe_feedback_vector);
 
   TNode<Object> Generate_NegateWithFeedback(
       TNode<Context> context, TNode<Object> value, TNode<UintPtrT> slot,
-      TNode<HeapObject> maybe_feedback_vector,
-      UpdateFeedbackMode update_feedback_mode);
+      TNode<HeapObject> maybe_feedback_vector);
 
  private:
   compiler::CodeAssemblerState* const state_;

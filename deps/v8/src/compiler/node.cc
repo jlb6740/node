@@ -314,12 +314,15 @@ void Node::ReplaceUses(Node* that) {
 }
 
 bool Node::OwnedBy(Node const* owner) const {
+  unsigned mask = 0;
   for (Use* use = first_use_; use; use = use->next) {
-    if (use->from() != owner) {
+    if (use->from() == owner) {
+      mask |= 1;
+    } else {
       return false;
     }
   }
-  return first_use_ != nullptr;
+  return mask == 1;
 }
 
 bool Node::OwnedBy(Node const* owner1, Node const* owner2) const {
@@ -496,7 +499,3 @@ bool Node::Uses::empty() const { return begin() == end(); }
 }  // namespace compiler
 }  // namespace internal
 }  // namespace v8
-
-V8_EXPORT_PRIVATE extern void _v8_internal_Node_Print(void* object) {
-  reinterpret_cast<i::compiler::Node*>(object)->Print();
-}

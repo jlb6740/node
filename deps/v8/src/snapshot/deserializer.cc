@@ -282,7 +282,7 @@ void Deserializer::DeserializeDeferredObjects() {
 void Deserializer::LogNewMapEvents() {
   DisallowGarbageCollection no_gc;
   for (Handle<Map> map : new_maps_) {
-    DCHECK(FLAG_log_maps);
+    DCHECK(FLAG_trace_maps);
     LOG(isolate(), MapCreate(*map));
     LOG(isolate(), MapDetails(*map));
   }
@@ -387,7 +387,7 @@ void Deserializer::PostProcessNewObject(Handle<Map> map, Handle<HeapObject> obj,
       new_code_objects_.push_back(Handle<Code>::cast(obj));
     }
   } else if (InstanceTypeChecker::IsMap(instance_type)) {
-    if (FLAG_log_maps) {
+    if (FLAG_trace_maps) {
       // Keep track of all seen Maps to log them later since they might be only
       // partially initialized at this point.
       new_maps_.push_back(Handle<Map>::cast(obj));
@@ -690,7 +690,7 @@ void Deserializer::RelocInfoVisitor::VisitOffHeapTarget(Code host,
   DCHECK(Builtins::IsBuiltinId(builtin_index));
 
   CHECK_NOT_NULL(isolate()->embedded_blob_code());
-  EmbeddedData d = EmbeddedData::FromBlob(isolate());
+  EmbeddedData d = EmbeddedData::FromBlob();
   Address address = d.InstructionStartOfBuiltin(builtin_index);
   CHECK_NE(kNullAddress, address);
 

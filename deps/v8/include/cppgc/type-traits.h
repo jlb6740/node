@@ -65,12 +65,12 @@ template <typename T>
 constexpr bool IsTraceableV = IsTraceable<T>::value;
 
 template <typename T, typename = void>
-struct HasGarbageCollectedMixinTypeMarker : std::false_type {
+struct IsGarbageCollectedMixinType : std::false_type {
   static_assert(sizeof(T), "T must be fully defined");
 };
 
 template <typename T>
-struct HasGarbageCollectedMixinTypeMarker<
+struct IsGarbageCollectedMixinType<
     T,
     void_t<typename std::remove_const_t<T>::IsGarbageCollectedMixinTypeMarker>>
     : std::true_type {
@@ -78,53 +78,14 @@ struct HasGarbageCollectedMixinTypeMarker<
 };
 
 template <typename T, typename = void>
-struct HasGarbageCollectedTypeMarker : std::false_type {
+struct IsGarbageCollectedType : IsGarbageCollectedMixinType<T> {
   static_assert(sizeof(T), "T must be fully defined");
 };
 
 template <typename T>
-struct HasGarbageCollectedTypeMarker<
+struct IsGarbageCollectedType<
     T, void_t<typename std::remove_const_t<T>::IsGarbageCollectedTypeMarker>>
     : std::true_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T, bool = HasGarbageCollectedTypeMarker<T>::value,
-          bool = HasGarbageCollectedMixinTypeMarker<T>::value>
-struct IsGarbageCollectedMixinType : std::false_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T>
-struct IsGarbageCollectedMixinType<T, false, true> : std::true_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T, bool = HasGarbageCollectedTypeMarker<T>::value>
-struct IsGarbageCollectedType : std::false_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T>
-struct IsGarbageCollectedType<T, true> : std::true_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T>
-struct IsGarbageCollectedOrMixinType
-    : std::integral_constant<bool, IsGarbageCollectedType<T>::value ||
-                                       IsGarbageCollectedMixinType<T>::value> {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T, bool = (HasGarbageCollectedTypeMarker<T>::value &&
-                              HasGarbageCollectedMixinTypeMarker<T>::value)>
-struct IsGarbageCollectedWithMixinType : std::false_type {
-  static_assert(sizeof(T), "T must be fully defined");
-};
-
-template <typename T>
-struct IsGarbageCollectedWithMixinType<T, true> : std::true_type {
   static_assert(sizeof(T), "T must be fully defined");
 };
 
@@ -166,60 +127,18 @@ struct IsUntracedMemberType<T, true> : std::true_type {};
 
 }  // namespace internal
 
-/**
- * Value is true for types that inherit from `GarbageCollectedMixin` but not
- * `GarbageCollected<T>` (i.e., they are free mixins), and false otherwise.
- */
 template <typename T>
 constexpr bool IsGarbageCollectedMixinTypeV =
     internal::IsGarbageCollectedMixinType<T>::value;
-
-/**
- * Value is true for types that inherit from `GarbageCollected<T>`, and false
- * otherwise.
- */
 template <typename T>
 constexpr bool IsGarbageCollectedTypeV =
     internal::IsGarbageCollectedType<T>::value;
-
-/**
- * Value is true for types that inherit from either `GarbageCollected<T>` or
- * `GarbageCollectedMixin`, and false otherwise.
- */
-template <typename T>
-constexpr bool IsGarbageCollectedOrMixinTypeV =
-    internal::IsGarbageCollectedOrMixinType<T>::value;
-
-/**
- * Value is true for types that inherit from `GarbageCollected<T>` and
- * `GarbageCollectedMixin`, and false otherwise.
- */
-template <typename T>
-constexpr bool IsGarbageCollectedWithMixinTypeV =
-    internal::IsGarbageCollectedWithMixinType<T>::value;
-
-/**
- * Value is true for types of type `Member<T>`, and false otherwise.
- */
 template <typename T>
 constexpr bool IsMemberTypeV = internal::IsMemberType<T>::value;
-
-/**
- * Value is true for types of type `UntracedMember<T>`, and false otherwise.
- */
 template <typename T>
 constexpr bool IsUntracedMemberTypeV = internal::IsUntracedMemberType<T>::value;
-
-/**
- * Value is true for types of type `WeakMember<T>`, and false otherwise.
- */
 template <typename T>
 constexpr bool IsWeakMemberTypeV = internal::IsWeakMemberType<T>::value;
-
-/**
- * Value is true for types that are considered weak references, and false
- * otherwise.
- */
 template <typename T>
 constexpr bool IsWeakV = internal::IsWeak<T>::value;
 

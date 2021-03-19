@@ -41,7 +41,7 @@ size_t MemoryChunkLayout::AllocatableMemoryInCodePage() {
 }
 
 intptr_t MemoryChunkLayout::ObjectStartOffsetInDataPage() {
-  return RoundUp(MemoryChunk::kHeaderSize + Bitmap::kSize, kDoubleSize);
+  return RoundUp(MemoryChunk::kHeaderSize + Bitmap::kSize, kTaggedSize);
 }
 
 size_t MemoryChunkLayout::ObjectStartOffsetInMemoryChunk(

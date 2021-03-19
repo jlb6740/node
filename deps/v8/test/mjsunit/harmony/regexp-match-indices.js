@@ -2,13 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 //
-// Flags: --harmony-regexp-match-indices --allow-natives-syntax
-// Flags: --expose-gc --stack-size=100
-// Flags: --no-force-slow-path
+// Flags: --harmony-regexp-match-indices --expose-gc --stack-size=100
 
 // Sanity test.
 {
-  const re = /a+(?<Z>z)?/d;
+  const re = /a+(?<Z>z)?/;
   const m = re.exec("xaaaz");
 
   assertEquals(m.indices, [[1, 5], [4, 5]]);
@@ -17,7 +15,7 @@
 
 // Capture groups that are not matched return `undefined`.
 {
-  const re = /a+(?<Z>z)?/d;
+  const re = /a+(?<Z>z)?/;
   const m = re.exec("xaaay");
 
   assertEquals(m.indices, [[1, 4], undefined]);
@@ -26,7 +24,7 @@
 
 // Two capture groups.
 {
-  const re = /a+(?<A>zz)?(?<B>ii)?/d;
+  const re = /a+(?<A>zz)?(?<B>ii)?/;
   const m = re.exec("xaaazzii");
 
   assertEquals(m.indices, [[1, 8], [4, 6], [6, 8]]);
@@ -35,16 +33,16 @@
 
 // No capture groups.
 {
-  const re = /a+/d;
+  const re = /a+/;
   const m = re.exec("xaaazzii");
 
-  assertEquals(m.indices, [[1, 4]]);
+  assertEquals(m.indices [[1, 4]]);
   assertEquals(m.indices.groups, undefined);
 }
 
 // No match.
 {
-  const re = /a+/d;
+  const re = /a+/;
   const m = re.exec("xzzii");
 
   assertEquals(null, m);
@@ -52,8 +50,8 @@
 
 // Unnamed capture groups.
 {
-  const re = /a+(z)?/d;
-  const m = re.exec("xaaaz");
+  const re = /a+(z)?/;
+  const m = re.exec("xaaaz")
 
   assertEquals(m.indices, [[1, 5], [4, 5]]);
   assertEquals(m.indices.groups, undefined)
@@ -61,7 +59,7 @@
 
 // Named and unnamed capture groups.
 {
-  const re = /a+(z)?(?<Y>y)?/d;
+  const re = /a+(z)?(?<Y>y)?/;
   const m = re.exec("xaaazyy")
 
   assertEquals(m.indices, [[1, 6], [4, 5], [5, 6]]);
@@ -71,7 +69,7 @@
 
 // Verify property overwrite.
 {
-  const re = /a+(?<Z>z)?/d;
+  const re = /a+(?<Z>z)?/;
   const m = re.exec("xaaaz");
 
   m.indices = null;
@@ -100,7 +98,7 @@
     }
   });
 
-  const re = /a+(?<Z>z)?/d;
+  const re = /a+(?<Z>z)?/;
   const m = re.exec("xaaaz");
 
   assertEquals(m.indices.groups, {'Z': [4, 5]})
@@ -108,14 +106,14 @@
 
 // Test atomic regexp.
 {
-  const m = (/undefined/d).exec();
+  const m = /undefined/.exec();
 
   assertEquals(m.indices, [[0, 9]]);
 }
 
 // Test deleting unrelated fields does not break.
 {
-  const m = (/undefined/d).exec();
+  const m = /undefined/.exec();
   delete m['index'];
   gc();
   assertEquals(m.indices, [[0, 9]]);
@@ -123,7 +121,7 @@
 
 // Stack overflow.
 {
-  const re = /a+(?<Z>z)?/d;
+  const re = /a+(?<Z>z)?/;
   const m = re.exec("xaaaz");
 
   function rec() {
@@ -140,39 +138,9 @@
 
 // Match between matches.
 {
-  const re = /a+(?<A>zz)?(?<B>ii)?/d;
+  const re = /a+(?<A>zz)?(?<B>ii)?/;
   const m = re.exec("xaaazzii");
   assertTrue(/b+(?<C>cccc)?/.test("llllllbbbbbbcccc"));
   assertEquals(m.indices, [[1, 8], [4, 6], [6, 8]]);
   assertEquals(m.indices.groups, {'A': [4, 6], 'B': [6, 8]});
-}
-
-// Redefined hasIndices should reflect in flags.
-{
-  let re = /./;
-  Object.defineProperty(re, "hasIndices", { get: function() { return true; } });
-  assertEquals("d", re.flags);
-}
-
-{
-  // The flags field of a regexp should be sorted.
-  assertEquals("dgmsy", (/asdf/dymsg).flags);
-
-  // The 'hasIndices' member should be set according to the hasIndices flag.
-  assertTrue((/asdf/dymsg).hasIndices);
-  assertFalse((/asdf/ymsg).hasIndices);
-
-  // The new fields installed on the regexp prototype map shouldn't make
-  // unmodified regexps slow.
-
-  // TODO(v8:11248) Enabling v8_dict_property_const_tracking currently evokes
-  // that the original fast mode prototype for regexes is converted to a
-  // dictionary mode one, which makes %RegexpIsUnmodified fail. Once we support
-  // directly creating the regex prototype in dictionary mode if
-  // v8_dict_property_const_tracking is enabled, change %RegexpIsUnmodified to
-  // know about the canonical dictionary mode prototype, too.
-  if (!%IsDictPropertyConstTrackingEnabled()) {
-    %RegexpIsUnmodified(/asdf/);
-    %RegexpIsUnmodified(/asdf/d);
-  }
 }

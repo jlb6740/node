@@ -2427,19 +2427,18 @@ TEST_F(MachineOperatorReducerTest, Float64Atan2WithConstant) {
 
 TEST_F(MachineOperatorReducerTest, Float64Atan2WithNaN) {
   Node* const p0 = Parameter(0);
-  const double nan = std::numeric_limits<double>::quiet_NaN();
-  Node* const nan_node = Float64Constant(nan);
+  Node* const nan = Float64Constant(std::numeric_limits<double>::quiet_NaN());
   {
     Reduction const r =
-        Reduce(graph()->NewNode(machine()->Float64Atan2(), p0, nan_node));
+        Reduce(graph()->NewNode(machine()->Float64Atan2(), p0, nan));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(), IsFloat64Constant(NanSensitiveDoubleEq(nan)));
+    EXPECT_EQ(nan, r.replacement());
   }
   {
     Reduction const r =
-        Reduce(graph()->NewNode(machine()->Float64Atan2(), nan_node, p0));
+        Reduce(graph()->NewNode(machine()->Float64Atan2(), nan, p0));
     ASSERT_TRUE(r.Changed());
-    EXPECT_THAT(r.replacement(), IsFloat64Constant(NanSensitiveDoubleEq(nan)));
+    EXPECT_EQ(nan, r.replacement());
   }
 }
 

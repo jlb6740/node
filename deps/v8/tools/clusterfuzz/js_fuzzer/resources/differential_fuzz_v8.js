@@ -23,7 +23,5 @@ assertOptimized = () => {};
 isNeverOptimize = () => {};
 isAlwaysOptimize = () => {};
 isInterpreted = () => {};
-isBaseline = () => {};
-isUnoptimized = () => {};
 isOptimized = () => {};
 isTurboFanned = () => {};

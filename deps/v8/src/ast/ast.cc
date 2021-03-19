@@ -236,6 +236,12 @@ LanguageMode FunctionLiteral::language_mode() const {
 
 FunctionKind FunctionLiteral::kind() const { return scope()->function_kind(); }
 
+bool FunctionLiteral::NeedsHomeObject(Expression* expr) {
+  if (expr == nullptr || !expr->IsFunctionLiteral()) return false;
+  DCHECK_NOT_NULL(expr->AsFunctionLiteral()->scope());
+  return expr->AsFunctionLiteral()->scope()->NeedsHomeObject();
+}
+
 std::unique_ptr<char[]> FunctionLiteral::GetDebugName() const {
   const AstConsString* cons_string;
   if (raw_name_ != nullptr && !raw_name_->IsEmpty()) {
@@ -575,6 +581,7 @@ int ArrayLiteral::InitDepthAndFlags() {
             break;
           case Literal::kBigInt:
           case Literal::kString:
+          case Literal::kSymbol:
           case Literal::kBoolean:
           case Literal::kUndefined:
           case Literal::kNull:
@@ -891,22 +898,6 @@ bool CompareOperation::IsLiteralCompareNull(Expression** expr) {
          MatchLiteralCompareNull(right_, op(), left_, expr);
 }
 
-void CallBase::ComputeSpreadPosition() {
-  int arguments_length = arguments_.length();
-  int first_spread_index = 0;
-  for (; first_spread_index < arguments_length; first_spread_index++) {
-    if (arguments_.at(first_spread_index)->IsSpread()) break;
-  }
-  SpreadPosition position;
-  if (first_spread_index == arguments_length - 1) {
-    position = kHasFinalSpread;
-  } else {
-    DCHECK_LT(first_spread_index, arguments_length - 1);
-    position = kHasNonFinalSpread;
-  }
-  bit_field_ |= SpreadPositionField::encode(position);
-}
-
 Call::CallType Call::GetCallType() const {
   VariableProxy* proxy = expression()->AsVariableProxy();
   if (proxy != nullptr) {
@@ -990,6 +981,8 @@ Handle<Object> Literal::BuildValue(LocalIsolate* isolate) const {
           number_);
     case kString:
       return string_->string();
+    case kSymbol:
+      return isolate->factory()->home_object_symbol();
     case kBoolean:
       return isolate->factory()->ToBoolean(boolean_);
     case kNull:
@@ -1035,6 +1028,8 @@ bool Literal::ToBooleanIsTrue() const {
       }
       return false;
     }
+    case kSymbol:
+      return true;
     case kTheHole:
       UNREACHABLE();
   }

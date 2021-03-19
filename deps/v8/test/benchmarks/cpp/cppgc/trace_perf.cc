@@ -4,7 +4,6 @@
 
 #include "include/cppgc/allocation.h"
 #include "include/cppgc/garbage-collected.h"
-#include "include/cppgc/persistent.h"
 #include "src/heap/cppgc/globals.h"
 #include "src/heap/cppgc/heap.h"
 #include "test/benchmarks/cpp/cppgc/utils.h"

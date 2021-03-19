@@ -111,7 +111,8 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
   if (!copy->IsJSArray(isolate)) {
     if (copy->HasFastProperties(isolate)) {
       Handle<DescriptorArray> descriptors(
-          copy->map(isolate).instance_descriptors(isolate), isolate);
+          copy->map(isolate).instance_descriptors(isolate, kRelaxedLoad),
+          isolate);
       for (InternalIndex i : copy->map(isolate).IterateOwnDescriptors()) {
         PropertyDetails details = descriptors->GetDetails(i);
         DCHECK_EQ(kField, details.location());
@@ -119,6 +120,7 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
         FieldIndex index = FieldIndex::ForPropertyIndex(
             copy->map(isolate), details.field_index(),
             details.representation());
+        if (copy->IsUnboxedDoubleField(isolate, index)) continue;
         Object raw = copy->RawFastPropertyAt(isolate, index);
         if (raw.IsJSObject(isolate)) {
           Handle<JSObject> value(JSObject::cast(raw), isolate);
@@ -133,8 +135,8 @@ MaybeHandle<JSObject> JSObjectWalkVisitor<ContextObject>::StructureWalk(
       }
     } else {
       if (V8_DICT_MODE_PROTOTYPES_BOOL) {
-        Handle<SwissNameDictionary> dict(
-            copy->property_dictionary_swiss(isolate), isolate);
+        Handle<OrderedNameDictionary> dict(
+            copy->property_dictionary_ordered(isolate), isolate);
         for (InternalIndex i : dict->IterateEntries()) {
           Object raw = dict->ValueAt(i);
           if (!raw.IsJSObject(isolate)) continue;
@@ -519,7 +521,7 @@ Handle<JSObject> CreateArrayLiteral(
 inline DeepCopyHints DecodeCopyHints(int flags) {
   DeepCopyHints copy_hints =
       (flags & AggregateLiteral::kIsShallow) ? kObjectIsShallow : kNoHints;
-  if (FLAG_track_double_fields) {
+  if (FLAG_track_double_fields && !FLAG_unbox_double_fields) {
     // Make sure we properly clone mutable heap numbers on 32-bit platforms.
     copy_hints = kNoHints;
   }
@@ -664,46 +666,36 @@ RUNTIME_FUNCTION(Runtime_CreateRegExpLiteral) {
   CONVERT_ARG_HANDLE_CHECKED(String, pattern, 2);
   CONVERT_SMI_ARG_CHECKED(flags, 3);
 
-  if (maybe_vector->IsUndefined()) {
-    // We don't have a vector; don't create a boilerplate, simply construct a
-    // plain JSRegExp instance and return it.
-    RETURN_RESULT_OR_FAILURE(
-        isolate, JSRegExp::New(isolate, pattern, JSRegExp::Flags(flags)));
+  Handle<FeedbackVector> vector;
+  if (maybe_vector->IsFeedbackVector()) {
+    vector = Handle<FeedbackVector>::cast(maybe_vector);
+  } else {
+    DCHECK(maybe_vector->IsUndefined());
+  }
+  if (vector.is_null()) {
+    Handle<JSRegExp> new_regexp;
+    ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
+        isolate, new_regexp,
+        JSRegExp::New(isolate, pattern, JSRegExp::Flags(flags)));
+    return *new_regexp;
   }
 
-  Handle<FeedbackVector> vector = Handle<FeedbackVector>::cast(maybe_vector);
+  // This function assumes that the boilerplate does not yet exist.
   FeedbackSlot literal_slot(FeedbackVector::ToSlot(index));
   Handle<Object> literal_site(vector->Get(literal_slot)->cast<Object>(),
                               isolate);
-
-  // This function must not be called when a boilerplate already exists (if it
-  // exists, callers should instead copy the boilerplate into a new JSRegExp
-  // instance).
   CHECK(!HasBoilerplate(literal_site));
 
-  Handle<JSRegExp> regexp_instance;
+  Handle<JSRegExp> boilerplate;
   ASSIGN_RETURN_FAILURE_ON_EXCEPTION(
-      isolate, regexp_instance,
+      isolate, boilerplate,
       JSRegExp::New(isolate, pattern, JSRegExp::Flags(flags)));
-
-  // JSRegExp literal sites are initialized in a two-step process:
-  // Uninitialized-Preinitialized, and Preinitialized-Initialized.
   if (IsUninitializedLiteralSite(*literal_site)) {
     PreInitializeLiteralSite(vector, literal_slot);
-    return *regexp_instance;
+    return *boilerplate;
   }
-
-  Handle<FixedArray> data(FixedArray::cast(regexp_instance->data()), isolate);
-  Handle<String> source(String::cast(regexp_instance->source()), isolate);
-  Handle<RegExpBoilerplateDescription> boilerplate =
-      isolate->factory()->NewRegExpBoilerplateDescription(
-          data, source, Smi::cast(regexp_instance->flags()));
-
   vector->SynchronizedSet(literal_slot, *boilerplate);
-  DCHECK(HasBoilerplate(
-      handle(vector->Get(literal_slot)->cast<Object>(), isolate)));
-
-  return *regexp_instance;
+  return *JSRegExp::Copy(boilerplate);
 }
 
 }  // namespace internal

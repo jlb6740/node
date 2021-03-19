@@ -54,8 +54,6 @@ static unsigned CpuFeaturesImpliedByCompiler() {
   return answer;
 }
 
-bool CpuFeatures::SupportsWasmSimd128() { return false; }
-
 void CpuFeatures::ProbeImpl(bool cross_compile) {
   supported_ |= CpuFeaturesImpliedByCompiler();
   icache_line_size_ = 128;
@@ -112,12 +110,6 @@ void CpuFeatures::ProbeImpl(bool cross_compile) {
   supported_ |= (1u << FPR_GPR_MOV);
 #endif
 #endif
-
-  // Set a static value on whether Simd is supported.
-  // This variable is only used for certain archs to query SupportWasmSimd128()
-  // at runtime in builtins using an extern ref. Other callers should use
-  // CpuFeatures::SupportWasmSimd128().
-  CpuFeatures::supports_wasm_simd_128_ = CpuFeatures::SupportsWasmSimd128();
 }
 
 void CpuFeatures::PrintTarget() {
@@ -1477,8 +1469,7 @@ void Assembler::mcrfs(CRegister cr, FPSCRBit bit) {
 
 void Assembler::mfcr(Register dst) { emit(EXT2 | MFCR | dst.code() * B21); }
 
-void Assembler::mtcr(Register src) {
-  uint8_t FXM = 0xFF;
+void Assembler::mtcrf(unsigned char FXM, Register src) {
   emit(MTCRF | src.code() * B21 | FXM * B12);
 }
 #if V8_TARGET_ARCH_PPC64

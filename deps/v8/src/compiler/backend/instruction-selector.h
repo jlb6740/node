@@ -16,11 +16,8 @@
 #include "src/compiler/linkage.h"
 #include "src/compiler/machine-operator.h"
 #include "src/compiler/node.h"
-#include "src/zone/zone-containers.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/simd-shuffle.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
+#include "src/zone/zone-containers.h"
 
 namespace v8 {
 namespace internal {
@@ -494,7 +491,7 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void AppendDeoptimizeArguments(InstructionOperandVector* args,
                                  DeoptimizeKind kind, DeoptimizeReason reason,
                                  FeedbackSource const& feedback,
-                                 FrameState frame_state);
+                                 Node* frame_state);
 
   void EmitTableSwitch(const SwitchInfo& sw,
                        InstructionOperand const& index_operand);
@@ -564,12 +561,13 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
                             CallBufferFlags flags, bool is_tail_call,
                             int stack_slot_delta = 0);
   bool IsTailCallAddressImmediate();
+  int GetTempsCountForTailCallFromJSFunction();
 
   void UpdateMaxPushedArgumentCount(size_t count);
 
-  FrameStateDescriptor* GetFrameStateDescriptor(FrameState node);
+  FrameStateDescriptor* GetFrameStateDescriptor(Node* node);
   size_t AddInputsToFrameStateDescriptor(FrameStateDescriptor* descriptor,
-                                         FrameState state, OperandGenerator* g,
+                                         Node* state, OperandGenerator* g,
                                          StateObjectDeduplicator* deduplicator,
                                          InstructionOperandVector* inputs,
                                          FrameStateInputKind kind, Zone* zone);
@@ -630,7 +628,7 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   void VisitBranch(Node* input, BasicBlock* tbranch, BasicBlock* fbranch);
   void VisitSwitch(Node* node, const SwitchInfo& sw);
   void VisitDeoptimize(DeoptimizeKind kind, DeoptimizeReason reason,
-                       FeedbackSource const& feedback, FrameState frame_state);
+                       FeedbackSource const& feedback, Node* frame_state);
   void VisitReturn(Node* ret);
   void VisitThrow(Node* node);
   void VisitRetain(Node* node);
@@ -655,11 +653,13 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   // ============= Vector instruction (SIMD) helper fns. =======================
   // ===========================================================================
 
-#if V8_ENABLE_WEBASSEMBLY
+  // Canonicalize shuffles to make pattern matching simpler. Returns the shuffle
+  // indices, and a boolean indicating if the shuffle is a swizzle (one input).
+  void CanonicalizeShuffle(Node* node, uint8_t* shuffle, bool* is_swizzle);
+
   // Swaps the two first input operands of the node, to help match shuffles
   // to specific architectural instructions.
   void SwapShuffleInputs(Node* node);
-#endif  // V8_ENABLE_WEBASSEMBLY
 
   // ===========================================================================
 
@@ -699,31 +699,6 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   };
 #endif  // V8_TARGET_ARCH_64_BIT
 
-  struct FrameStateInput {
-    FrameStateInput(Node* node_, FrameStateInputKind kind_)
-        : node(node_), kind(kind_) {}
-
-    Node* node;
-    FrameStateInputKind kind;
-
-    struct Hash {
-      size_t operator()(FrameStateInput const& source) const {
-        return base::hash_combine(source.node,
-                                  static_cast<size_t>(source.kind));
-      }
-    };
-
-    struct Equal {
-      bool operator()(FrameStateInput const& lhs,
-                      FrameStateInput const& rhs) const {
-        return lhs.node == rhs.node && lhs.kind == rhs.kind;
-      }
-    };
-  };
-
-  struct CachedStateValues;
-  class CachedStateValuesBuilder;
-
   // ===========================================================================
 
   Zone* const zone_;
@@ -747,9 +722,6 @@ class V8_EXPORT_PRIVATE InstructionSelector final {
   EnableScheduling enable_scheduling_;
   EnableRootsRelativeAddressing enable_roots_relative_addressing_;
   EnableSwitchJumpTable enable_switch_jump_table_;
-  ZoneUnorderedMap<FrameStateInput, CachedStateValues*, FrameStateInput::Hash,
-                   FrameStateInput::Equal>
-      state_values_cache_;
 
   PoisoningMitigationLevel poisoning_level_;
   Frame* frame_;

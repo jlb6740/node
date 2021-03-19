@@ -175,7 +175,7 @@ class NoWriteBarrierTest : public testing::TestWithHeap {};
 TEST_F(WriteBarrierTest, EnableDisableIncrementalMarking) {
   {
     IncrementalMarkingScope scope(marker());
-    EXPECT_TRUE(WriteBarrier::IsAnyIncrementalOrConcurrentMarking());
+    EXPECT_TRUE(ProcessHeap::IsAnyIncrementalOrConcurrentMarking());
   }
 }
 
@@ -415,13 +415,10 @@ TEST_F(WriteBarrierTest, DijkstraWriteBarrierRangeTriggersWhenMarkingIsOn) {
     EXPECT_FALSE(object1->IsMarked());
     WriteBarrierParams params;
     EXPECT_EQ(WriteBarrierType::kMarking,
-              HeapConsistency::GetWriteBarrierType(
-                  object2->objects, params, [this]() -> HeapHandle& {
-                    return GetHeap()->GetHeapHandle();
-                  }));
+              HeapConsistency::GetWriteBarrierType(object2->objects, params));
     HeapConsistency::DijkstraWriteBarrierRange(
-        params, object2->objects, sizeof(InlinedObject), 4,
-        TraceTrait<InlinedObject>::Trace);
+        params, GetHeap()->GetHeapHandle(), object2->objects,
+        sizeof(InlinedObject), 4, TraceTrait<InlinedObject>::Trace);
     EXPECT_TRUE(object1->IsMarked());
   }
 }
@@ -435,13 +432,10 @@ TEST_F(WriteBarrierTest, DijkstraWriteBarrierRangeBailoutIfMarked) {
     ExpectNoWriteBarrierFires scope(marker(), {object1});
     WriteBarrierParams params;
     EXPECT_EQ(WriteBarrierType::kMarking,
-              HeapConsistency::GetWriteBarrierType(
-                  object2->objects, params, [this]() -> HeapHandle& {
-                    return GetHeap()->GetHeapHandle();
-                  }));
+              HeapConsistency::GetWriteBarrierType(object2->objects, params));
     HeapConsistency::DijkstraWriteBarrierRange(
-        params, object2->objects, sizeof(InlinedObject), 4,
-        TraceTrait<InlinedObject>::Trace);
+        params, GetHeap()->GetHeapHandle(), object2->objects,
+        sizeof(InlinedObject), 4, TraceTrait<InlinedObject>::Trace);
   }
 }
 
@@ -453,8 +447,8 @@ TEST_F(WriteBarrierTest, SteeleWriteBarrierTriggersWhenMarkingIsOn) {
     EXPECT_TRUE(HeapObjectHeader::FromPayload(object1).TryMarkAtomic());
     WriteBarrierParams params;
     EXPECT_EQ(WriteBarrierType::kMarking,
-              HeapConsistency::GetWriteBarrierType(
-                  &object2->next_ref(), object2->next_ref().Get(), params));
+              HeapConsistency::GetWriteBarrierType(object2->next_ref().Get(),
+                                                   params));
     HeapConsistency::SteeleWriteBarrier(params, object2->next_ref().Get());
   }
 }
@@ -466,8 +460,8 @@ TEST_F(WriteBarrierTest, SteeleWriteBarrierBailoutIfNotMarked) {
     ExpectNoWriteBarrierFires scope(marker(), {object1});
     WriteBarrierParams params;
     EXPECT_EQ(WriteBarrierType::kMarking,
-              HeapConsistency::GetWriteBarrierType(
-                  &object2->next_ref(), object2->next_ref().Get(), params));
+              HeapConsistency::GetWriteBarrierType(object2->next_ref().Get(),
+                                                   params));
     HeapConsistency::SteeleWriteBarrier(params, object2->next_ref().Get());
   }
 }

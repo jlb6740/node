@@ -60,8 +60,7 @@ void FakeAllocate(StatsCollector* stats_collector, size_t bytes) {
 }  // namespace
 
 TEST(HeapGrowingTest, ConservativeGCInvoked) {
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   MockGarbageCollector gc;
   cppgc::Heap::ResourceConstraints constraints;
   // Force GC at the first update.
@@ -74,8 +73,7 @@ TEST(HeapGrowingTest, ConservativeGCInvoked) {
 }
 
 TEST(HeapGrowingTest, InitialHeapSize) {
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   MockGarbageCollector gc;
   cppgc::Heap::ResourceConstraints constraints;
   // Use larger size to avoid running into small heap optimizations.
@@ -92,8 +90,7 @@ TEST(HeapGrowingTest, InitialHeapSize) {
 TEST(HeapGrowingTest, ConstantGrowingFactor) {
   // Use larger size to avoid running into small heap optimizations.
   constexpr size_t kObjectSize = 10 * HeapGrowing::kMinLimitIncrease;
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   FakeGarbageCollector gc(&stats_collector);
   cppgc::Heap::ResourceConstraints constraints;
   // Force GC at the first update.
@@ -111,8 +108,7 @@ TEST(HeapGrowingTest, ConstantGrowingFactor) {
 TEST(HeapGrowingTest, SmallHeapGrowing) {
   // Larger constant to avoid running into special handling for smaller heaps.
   constexpr size_t kLargeAllocation = 100 * kMB;
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   FakeGarbageCollector gc(&stats_collector);
   cppgc::Heap::ResourceConstraints constraints;
   // Force GC at the first update.
@@ -128,8 +124,7 @@ TEST(HeapGrowingTest, SmallHeapGrowing) {
 }
 
 TEST(HeapGrowingTest, IncrementalGCStarted) {
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   MockGarbageCollector gc;
   cppgc::Heap::ResourceConstraints constraints;
   HeapGrowing growing(&gc, &stats_collector, constraints,
@@ -142,8 +137,7 @@ TEST(HeapGrowingTest, IncrementalGCStarted) {
 }
 
 TEST(HeapGrowingTest, IncrementalGCFinalized) {
-  StatsCollector stats_collector(nullptr /* metric_recorder */,
-                                 nullptr /* platform */);
+  StatsCollector stats_collector;
   MockGarbageCollector gc;
   cppgc::Heap::ResourceConstraints constraints;
   HeapGrowing growing(&gc, &stats_collector, constraints,

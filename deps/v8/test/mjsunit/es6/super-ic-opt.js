@@ -118,7 +118,7 @@
 
   // Assert that the function was deoptimized (dependency to the constant
   // value).
-  assertUnoptimized(D.prototype.foo);
+  assertFalse(isOptimized(D.prototype.foo));
 })();
 
 (function TestPropertyIsNonConstantData() {
@@ -239,7 +239,7 @@
   assertEquals("new value", r);
 
   // Assert that the function was deoptimized (holder changed).
-  assertUnoptimized(C.prototype.foo);
+  assertFalse(isOptimized(C.prototype.foo));
 })();
 
 (function TestUnexpectedHomeObjectPrototypeDeoptimizes() {
@@ -278,7 +278,7 @@
   assertEquals("new value", r);
 
   // Assert that the function was deoptimized.
-  assertUnoptimized(D.prototype.foo);
+  assertEquals(false, isOptimized(D.prototype.foo));
 })();
 
 (function TestUnexpectedReceiverDoesNotDeoptimize() {

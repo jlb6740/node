@@ -929,7 +929,7 @@ void OS::Abort() {
   fflush(stderr);
 
   if (g_hard_abort) {
-    IMMEDIATE_CRASH();
+    V8_IMMEDIATE_CRASH();
   }
   // Make the MSVCRT do a silent abort.
   raise(SIGABRT);

@@ -157,9 +157,8 @@ Object ObjectLookupAccessor(Isolate* isolate, Handle<Object> object,
       case LookupIterator::ACCESSOR: {
         Handle<Object> maybe_pair = it.GetAccessors();
         if (maybe_pair->IsAccessorPair()) {
-          Handle<NativeContext> native_context = it.GetHolder<JSReceiver>()
-                                                     ->GetCreationContext()
-                                                     .ToHandleChecked();
+          Handle<NativeContext> native_context =
+              it.GetHolder<JSReceiver>()->GetCreationContext();
           return *AccessorPair::GetComponent(
               isolate, native_context, Handle<AccessorPair>::cast(maybe_pair),
               component);

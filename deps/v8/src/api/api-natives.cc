@@ -531,7 +531,6 @@ MaybeHandle<JSFunction> InstantiateFunction(
     }
     return MaybeHandle<JSFunction>();
   }
-  data->set_published(true);
   return function;
 }
 
@@ -604,7 +603,7 @@ MaybeHandle<JSObject> ApiNatives::InstantiateRemoteObject(
 void ApiNatives::AddDataProperty(Isolate* isolate, Handle<TemplateInfo> info,
                                  Handle<Name> name, Handle<Object> value,
                                  PropertyAttributes attributes) {
-  PropertyDetails details(kData, attributes, PropertyConstness::kMutable);
+  PropertyDetails details(kData, attributes, PropertyCellType::kNoCell);
   auto details_handle = handle(details.AsSmi(), isolate);
   Handle<Object> data[] = {name, details_handle, value};
   AddPropertyToPropertyList(isolate, info, arraysize(data), data);
@@ -615,7 +614,7 @@ void ApiNatives::AddDataProperty(Isolate* isolate, Handle<TemplateInfo> info,
                                  PropertyAttributes attributes) {
   auto value = handle(Smi::FromInt(intrinsic), isolate);
   auto intrinsic_marker = isolate->factory()->true_value();
-  PropertyDetails details(kData, attributes, PropertyConstness::kMutable);
+  PropertyDetails details(kData, attributes, PropertyCellType::kNoCell);
   auto details_handle = handle(details.AsSmi(), isolate);
   Handle<Object> data[] = {name, intrinsic_marker, details_handle, value};
   AddPropertyToPropertyList(isolate, info, arraysize(data), data);
@@ -627,9 +626,7 @@ void ApiNatives::AddAccessorProperty(Isolate* isolate,
                                      Handle<FunctionTemplateInfo> getter,
                                      Handle<FunctionTemplateInfo> setter,
                                      PropertyAttributes attributes) {
-  if (!getter.is_null()) getter->set_published(true);
-  if (!setter.is_null()) setter->set_published(true);
-  PropertyDetails details(kAccessor, attributes, PropertyConstness::kMutable);
+  PropertyDetails details(kAccessor, attributes, PropertyCellType::kNoCell);
   auto details_handle = handle(details.AsSmi(), isolate);
   Handle<Object> data[] = {name, details_handle, getter, setter};
   AddPropertyToPropertyList(isolate, info, arraysize(data), data);
@@ -697,13 +694,14 @@ Handle<JSFunction> ApiNatives::CreateApiFunction(
     immutable_proto = GetInstanceTemplate->immutable_proto();
   }
 
-  // JSFunction requires information about the prototype slot.
-  DCHECK(!InstanceTypeChecker::IsJSFunction(type));
+  // JS_FUNCTION_TYPE requires information about the prototype slot.
+  DCHECK_NE(JS_FUNCTION_TYPE, type);
   int instance_size = JSObject::GetHeaderSize(type) +
                       kEmbedderDataSlotSize * embedder_field_count;
 
   Handle<Map> map = isolate->factory()->NewMap(type, instance_size,
                                                TERMINAL_FAST_ELEMENTS_KIND);
+  JSFunction::SetInitialMap(result, map, Handle<JSObject>::cast(prototype));
 
   // Mark as undetectable if needed.
   if (obj->undetectable()) {
@@ -739,8 +737,6 @@ Handle<JSFunction> ApiNatives::CreateApiFunction(
 
   if (immutable_proto) map->set_is_immutable_proto(true);
 
-  JSFunction::SetInitialMap(isolate, result, map,
-                            Handle<JSObject>::cast(prototype));
   return result;
 }
 

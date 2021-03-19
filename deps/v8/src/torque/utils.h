@@ -105,8 +105,6 @@ std::string SnakeifyString(const std::string& camel_string);
 std::string DashifyString(const std::string& underscore_string);
 std::string UnderlinifyPath(std::string path);
 
-bool StartsWithSingleUnderscore(const std::string& str);
-
 void ReplaceFileContentsIfDifferent(const std::string& file_path,
                                     const std::string& contents);
 

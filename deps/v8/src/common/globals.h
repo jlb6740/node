@@ -58,9 +58,6 @@ constexpr int GB = MB * 1024;
 #if (V8_TARGET_ARCH_S390 && !V8_HOST_ARCH_S390)
 #define USE_SIMULATOR 1
 #endif
-#if (V8_TARGET_ARCH_RISCV64 && !V8_HOST_ARCH_RISCV64)
-#define USE_SIMULATOR 1
-#endif
 #endif
 
 // Determine whether the architecture uses an embedded constant pool
@@ -99,13 +96,11 @@ STATIC_ASSERT(V8_DEFAULT_STACK_SIZE_KB* KB +
                   kStackLimitSlackForDeoptimizationInBytes <=
               MB);
 
-// Determine whether the short builtin calls optimization is enabled.
-#ifdef V8_SHORT_BUILTIN_CALLS
-#ifndef V8_COMPRESS_POINTERS
-// TODO(11527): Fix this by passing Isolate* to Code::OffHeapInstructionStart()
-// and friends.
-#error Short builtin calls feature requires pointer compression
-#endif
+// Determine whether double field unboxing feature is enabled.
+#if V8_TARGET_ARCH_64_BIT && !defined(V8_COMPRESS_POINTERS)
+#define V8_DOUBLE_FIELDS_UNBOXING false
+#else
+#define V8_DOUBLE_FIELDS_UNBOXING false
 #endif
 
 // Determine whether dict mode prototypes feature is enabled.
@@ -113,13 +108,6 @@ STATIC_ASSERT(V8_DEFAULT_STACK_SIZE_KB* KB +
 #define V8_DICT_MODE_PROTOTYPES_BOOL true
 #else
 #define V8_DICT_MODE_PROTOTYPES_BOOL false
-#endif
-
-// Determine whether dict property constness tracking feature is enabled.
-#ifdef V8_DICT_PROPERTY_CONST_TRACKING
-#define V8_DICT_PROPERTY_CONST_TRACKING_BOOL true
-#else
-#define V8_DICT_PROPERTY_CONST_TRACKING_BOOL false
 #endif
 
 // Determine whether tagged pointers are 8 bytes (used in Torque layouts for
@@ -131,7 +119,7 @@ STATIC_ASSERT(V8_DEFAULT_STACK_SIZE_KB* KB +
 #endif
 
 // Some types of tracing require the SFI to store a unique ID.
-#if defined(V8_TRACE_MAPS) || defined(V8_TRACE_UNOPTIMIZED)
+#if defined(V8_TRACE_MAPS) || defined(V8_TRACE_IGNITION)
 #define V8_SFI_HAS_UNIQUE_ID true
 #else
 #define V8_SFI_HAS_UNIQUE_ID false
@@ -462,10 +450,6 @@ constexpr int kNoSourcePosition = -1;
 // This constant is used to signal the function entry implicit stack check
 // bytecode offset.
 constexpr int kFunctionEntryBytecodeOffset = -1;
-
-// This constant is used to signal the function exit interrupt budget handling
-// bytecode offset.
-constexpr int kFunctionExitBytecodeOffset = -1;
 
 // This constant is used to indicate missing deoptimization information.
 constexpr int kNoDeoptimizationId = -1;
@@ -1700,16 +1684,12 @@ enum IcCheckType { ELEMENT, PROPERTY };
 //    without going through the on-heap Code trampoline.
 enum class StubCallMode {
   kCallCodeObject,
-#if V8_ENABLE_WEBASSEMBLY
   kCallWasmRuntimeStub,
-#endif  // V8_ENABLE_WEBASSEMBLY
   kCallBuiltinPointer,
 };
 
 constexpr int kFunctionLiteralIdInvalid = -1;
 constexpr int kFunctionLiteralIdTopLevel = 0;
-
-constexpr int kSwissNameDictionaryInitialCapacity = 4;
 
 constexpr int kSmallOrderedHashSetMinCapacity = 4;
 constexpr int kSmallOrderedHashMapMinCapacity = 4;

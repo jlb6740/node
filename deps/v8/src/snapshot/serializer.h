@@ -124,12 +124,10 @@ class CodeAddressMap : public CodeEventLogger {
     address_to_name_map_.Insert(code->address(), name, length);
   }
 
-#if V8_ENABLE_WEBASSEMBLY
   void LogRecordedBuffer(const wasm::WasmCode* code, const char* name,
                          int length) override {
     UNREACHABLE();
   }
-#endif  // V8_ENABLE_WEBASSEMBLY
 
   NameMap address_to_name_map_;
 };
@@ -152,9 +150,9 @@ class ObjectCacheIndexMap {
     return find_result.already_exists;
   }
 
-  int size() const { return next_index_; }
-
  private:
+  DISALLOW_GARBAGE_COLLECTION(no_gc_)
+
   IdentityMap<int, base::DefaultAllocationPolicy> map_;
   int next_index_;
 };

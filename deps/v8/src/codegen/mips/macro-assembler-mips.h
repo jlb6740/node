@@ -83,13 +83,6 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
   }
   void LeaveFrame(StackFrame::Type type);
 
-  void AllocateStackSpace(Register bytes) { Subu(sp, sp, bytes); }
-  void AllocateStackSpace(int bytes) {
-    DCHECK_GE(bytes, 0);
-    if (bytes == 0) return;
-    Subu(sp, sp, Operand(bytes));
-  }
-
   // Generates function and stub prologue code.
   void StubPrologue(StackFrame::Type type);
   void Prologue();
@@ -234,8 +227,7 @@ class V8_EXPORT_PRIVATE TurboAssembler : public TurboAssemblerBase {
     // TODO(mips): Implement.
     UNIMPLEMENTED();
   }
-  void JumpCodeObject(Register code_object,
-                      JumpMode jump_mode = JumpMode::kJump) override {
+  void JumpCodeObject(Register code_object) override {
     // TODO(mips): Implement.
     UNIMPLEMENTED();
   }
@@ -1005,10 +997,10 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
 
   // Load the global proxy from the current context.
   void LoadGlobalProxy(Register dst) {
-    LoadNativeContextSlot(dst, Context::GLOBAL_PROXY_INDEX);
+    LoadNativeContextSlot(Context::GLOBAL_PROXY_INDEX, dst);
   }
 
-  void LoadNativeContextSlot(Register dst, int index);
+  void LoadNativeContextSlot(int index, Register dst);
 
   // -------------------------------------------------------------------------
   // JavaScript invokes.
@@ -1048,9 +1040,6 @@ class V8_EXPORT_PRIVATE MacroAssembler : public TurboAssembler {
   // Support functions.
 
   void GetObjectType(Register function, Register map, Register type_reg);
-
-  void GetInstanceTypeRange(Register map, Register type_reg,
-                            InstanceType lower_limit, Register range);
 
   // -------------------------------------------------------------------------
   // Runtime calls.

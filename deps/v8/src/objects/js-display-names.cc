@@ -124,15 +124,8 @@ class LanguageNames : public LocaleDisplayNamesCommon {
   Maybe<icu::UnicodeString> of(Isolate* isolate,
                                const char* code) const override {
     UErrorCode status = U_ZERO_ERROR;
-    // 1.a If code does not match the unicode_language_id production, throw a
-    // RangeError exception.
-
-    // 1.b If IsStructurallyValidLanguageTag(code) is false, throw a RangeError
-    // exception.
     icu::Locale l =
         icu::Locale(icu::Locale::forLanguageTag(code, status).getBaseName());
-    // 1.c Set code to CanonicalizeUnicodeLocaleId(code).
-    l.canonicalize(status);
     std::string checked = l.toLanguageTag<std::string>(status);
 
     if (U_FAILURE(status)) {
@@ -506,10 +499,10 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
   std::vector<std::string> requested_locales =
       maybe_requested_locales.FromJust();
 
-  // 4. Let options be ? GetOptionsObject(options).
-  ASSIGN_RETURN_ON_EXCEPTION(
-      isolate, options, Intl::GetOptionsObject(isolate, input_options, service),
-      JSDisplayNames);
+  // 4. Let options be ? ToObject(options).
+  ASSIGN_RETURN_ON_EXCEPTION(isolate, options,
+                             Object::ToObject(isolate, input_options),
+                             JSDisplayNames);
 
   // Note: No need to create a record. It's not observable.
   // 5. Let opt be a new Record.
@@ -519,7 +512,7 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
   // 7. Let matcher be ? GetOption(options, "localeMatcher", "string", «
   // "lookup", "best fit" », "best fit").
   Maybe<Intl::MatcherOption> maybe_locale_matcher =
-      Intl::GetLocaleMatcher(isolate, options, service);
+      Intl::GetLocaleMatcher(isolate, options, "Intl.DisplayNames");
   MAYBE_RETURN(maybe_locale_matcher, MaybeHandle<JSDisplayNames>());
 
   // 8. Set opt.[[localeMatcher]] to matcher.
@@ -579,7 +572,8 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
   // 10. Let s be ? GetOption(options, "style", "string",
   //                          «"long", "short", "narrow"», "long").
   Maybe<Style> maybe_style = Intl::GetStringOption<Style>(
-      isolate, options, "style", service, {"long", "short", "narrow"},
+      isolate, options, "style", "Intl.DisplayNames",
+      {"long", "short", "narrow"},
       {Style::kLong, Style::kShort, Style::kNarrow}, Style::kLong);
   MAYBE_RETURN(maybe_style, MaybeHandle<JSDisplayNames>());
   Style style_enum = maybe_style.FromJust();
@@ -592,7 +586,7 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
   Maybe<Type> maybe_type =
       FLAG_harmony_intl_displaynames_date_types
           ? Intl::GetStringOption<Type>(
-                isolate, options, "type", service,
+                isolate, options, "type", "Intl.DisplayNames",
                 {"language", "region", "script", "currency", "weekday", "month",
                  "quarter", "dayPeriod", "dateTimeField"},
                 {
@@ -608,7 +602,7 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
                 },
                 Type::kUndefined)
           : Intl::GetStringOption<Type>(
-                isolate, options, "type", service,
+                isolate, options, "type", "Intl.DisplayNames",
                 {"language", "region", "script", "currency"},
                 {
                     Type::kLanguage,
@@ -631,7 +625,7 @@ MaybeHandle<JSDisplayNames> JSDisplayNames::New(Isolate* isolate,
   // 15. Let fallback be ? GetOption(options, "fallback", "string",
   //     « "code", "none" », "code").
   Maybe<Fallback> maybe_fallback = Intl::GetStringOption<Fallback>(
-      isolate, options, "fallback", service, {"code", "none"},
+      isolate, options, "fallback", "Intl.DisplayNames", {"code", "none"},
       {Fallback::kCode, Fallback::kNone}, Fallback::kCode);
   MAYBE_RETURN(maybe_fallback, MaybeHandle<JSDisplayNames>());
   Fallback fallback_enum = maybe_fallback.FromJust();

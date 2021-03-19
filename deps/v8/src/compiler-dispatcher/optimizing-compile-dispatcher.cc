@@ -27,10 +27,14 @@ void DisposeCompilationJob(OptimizedCompilationJob* job,
                            bool restore_function_code) {
   if (restore_function_code) {
     Handle<JSFunction> function = job->compilation_info()->closure();
-    function->set_code(function->shared().GetCode(), kReleaseStore);
+    function->set_code(function->shared().GetCode());
     if (function->IsInOptimizationQueue()) {
       function->ClearOptimizationMarker();
     }
+    // TODO(mvstanton): We can't call EnsureFeedbackVector here due to
+    // allocation, but we probably shouldn't call set_code either, as this
+    // sometimes runs on the worker thread!
+    // JSFunction::EnsureFeedbackVector(function);
   }
   delete job;
 }
@@ -77,7 +81,7 @@ class OptimizingCompileDispatcher::CompileTask : public CancelableTask {
             dispatcher_->recompilation_delay_));
       }
 
-      dispatcher_->CompileNext(dispatcher_->NextInput(&local_isolate),
+      dispatcher_->CompileNext(dispatcher_->NextInput(&local_isolate, true),
                                runtime_call_stats_scope.Get(), &local_isolate);
     }
     {
@@ -105,13 +109,23 @@ OptimizingCompileDispatcher::~OptimizingCompileDispatcher() {
 }
 
 OptimizedCompilationJob* OptimizingCompileDispatcher::NextInput(
-    LocalIsolate* local_isolate) {
+    LocalIsolate* local_isolate, bool check_if_flushing) {
   base::MutexGuard access_input_queue_(&input_queue_mutex_);
   if (input_queue_length_ == 0) return nullptr;
   OptimizedCompilationJob* job = input_queue_[InputQueueIndex(0)];
   DCHECK_NOT_NULL(job);
   input_queue_shift_ = InputQueueIndex(1);
   input_queue_length_--;
+  if (check_if_flushing) {
+    if (mode_ == FLUSH) {
+      UnparkedScope scope(local_isolate->heap());
+      local_isolate->heap()->AttachPersistentHandles(
+          job->compilation_info()->DetachPersistentHandles());
+      DisposeCompilationJob(job, true);
+      local_isolate->heap()->DetachPersistentHandles();
+      return nullptr;
+    }
+  }
   return job;
 }
 
@@ -149,42 +163,49 @@ void OptimizingCompileDispatcher::FlushOutputQueue(bool restore_function_code) {
   }
 }
 
-void OptimizingCompileDispatcher::FlushInputQueue() {
-  base::MutexGuard access_input_queue_(&input_queue_mutex_);
-  while (input_queue_length_ > 0) {
-    OptimizedCompilationJob* job = input_queue_[InputQueueIndex(0)];
-    DCHECK_NOT_NULL(job);
-    input_queue_shift_ = InputQueueIndex(1);
-    input_queue_length_--;
-    DisposeCompilationJob(job, true);
+void OptimizingCompileDispatcher::Flush(BlockingBehavior blocking_behavior) {
+  if (blocking_behavior == BlockingBehavior::kDontBlock) {
+    if (FLAG_block_concurrent_recompilation) Unblock();
+    base::MutexGuard access_input_queue_(&input_queue_mutex_);
+    while (input_queue_length_ > 0) {
+      OptimizedCompilationJob* job = input_queue_[InputQueueIndex(0)];
+      DCHECK_NOT_NULL(job);
+      input_queue_shift_ = InputQueueIndex(1);
+      input_queue_length_--;
+      DisposeCompilationJob(job, true);
+    }
+    FlushOutputQueue(true);
+    if (FLAG_trace_concurrent_recompilation) {
+      PrintF("  ** Flushed concurrent recompilation queues (not blocking).\n");
+    }
+    return;
   }
-}
-
-void OptimizingCompileDispatcher::FlushQueues(
-    BlockingBehavior blocking_behavior, bool restore_function_code) {
+  mode_ = FLUSH;
   if (FLAG_block_concurrent_recompilation) Unblock();
-  FlushInputQueue();
-  if (blocking_behavior == BlockingBehavior::kBlock) {
+  {
     base::MutexGuard lock_guard(&ref_count_mutex_);
     while (ref_count_ > 0) ref_count_zero_.Wait(&ref_count_mutex_);
+    mode_ = COMPILE;
   }
-  FlushOutputQueue(restore_function_code);
-}
-
-void OptimizingCompileDispatcher::Flush(BlockingBehavior blocking_behavior) {
-  FlushQueues(blocking_behavior, true);
+  FlushOutputQueue(true);
   if (FLAG_trace_concurrent_recompilation) {
-    PrintF("  ** Flushed concurrent recompilation queues. (mode: %s)\n",
-           (blocking_behavior == BlockingBehavior::kBlock) ? "blocking"
-                                                           : "non blocking");
+    PrintF("  ** Flushed concurrent recompilation queues.\n");
   }
 }
 
 void OptimizingCompileDispatcher::Stop() {
-  FlushQueues(BlockingBehavior::kBlock, false);
+  mode_ = FLUSH;
+  if (FLAG_block_concurrent_recompilation) Unblock();
+  {
+    base::MutexGuard lock_guard(&ref_count_mutex_);
+    while (ref_count_ > 0) ref_count_zero_.Wait(&ref_count_mutex_);
+    mode_ = COMPILE;
+  }
+
   // At this point the optimizing compiler thread's event loop has stopped.
   // There is no need for a mutex when reading input_queue_length_.
   DCHECK_EQ(input_queue_length_, 0);
+  FlushOutputQueue(false);
 }
 
 void OptimizingCompileDispatcher::InstallOptimizedFunctions() {

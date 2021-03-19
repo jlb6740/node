@@ -3,11 +3,7 @@
 // found in the LICENSE file.
 
 namespace array {
-
 type LoadJoinElementFn = builtin(Context, JSReceiver, uintptr) => JSAny;
-
-const kMaxArrayLength:
-    constexpr uint32 generates 'JSArray::kMaxArrayLength';
 
 // Fast C call to write a fixed array (see Buffer.fixedArray) to a single
 // string.
@@ -167,7 +163,7 @@ struct Buffer {
     const nofSeparatorsInt: intptr = nofSeparators;
     const sepsLen: intptr = separatorLength * nofSeparatorsInt;
     // Detect integer overflow
-    // TODO(turbofan): Replace with overflow-checked multiplication.
+    // TODO(tebbi): Replace with overflow-checked multiplication.
     if (sepsLen / separatorLength != nofSeparatorsInt) deferred {
         ThrowInvalidStringLength(context);
       }
@@ -559,9 +555,8 @@ ArrayPrototypeJoin(
 
   // Only handle valid array lengths. Although the spec allows larger
   // values, this matches historical V8 behavior.
-  if (len > kMaxArrayLength) {
+  if (len > kMaxArrayIndex + 1)
     ThrowTypeError(MessageTemplate::kInvalidArrayLength);
-  }
 
   return CycleProtectedArrayJoin<JSArray>(
       false, o, len, separator, Undefined, Undefined);
@@ -581,9 +576,8 @@ transitioning javascript builtin ArrayPrototypeToLocaleString(
 
   // Only handle valid array lengths. Although the spec allows larger
   // values, this matches historical V8 behavior.
-  if (len > kMaxArrayLength) {
+  if (len > kMaxArrayIndex + 1)
     ThrowTypeError(MessageTemplate::kInvalidArrayLength);
-  }
 
   return CycleProtectedArrayJoin<JSArray>(true, o, len, ',', locales, options);
 }

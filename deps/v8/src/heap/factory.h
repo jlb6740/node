@@ -7,7 +7,6 @@
 
 // Clients of this interface shouldn't depend on lots of heap internals.
 // Do not include anything from src/heap here!
-#include "src/baseline/baseline.h"
 #include "src/builtins/builtins.h"
 #include "src/common/globals.h"
 #include "src/execution/messages.h"
@@ -61,6 +60,7 @@ class RegExpMatchInfo;
 class ScriptContextTable;
 class SourceTextModule;
 class StackFrameInfo;
+class StackTraceFrame;
 class StringSet;
 class StoreHandler;
 class SyntheticModule;
@@ -75,18 +75,25 @@ enum class InitializedFlag : uint8_t;
 
 enum FunctionMode {
   kWithNameBit = 1 << 0,
-  kWithWritablePrototypeBit = 1 << 1,
-  kWithReadonlyPrototypeBit = 1 << 2,
+  kWithHomeObjectBit = 1 << 1,
+  kWithWritablePrototypeBit = 1 << 2,
+  kWithReadonlyPrototypeBit = 1 << 3,
   kWithPrototypeBits = kWithWritablePrototypeBit | kWithReadonlyPrototypeBit,
 
   // Without prototype.
   FUNCTION_WITHOUT_PROTOTYPE = 0,
   METHOD_WITH_NAME = kWithNameBit,
+  METHOD_WITH_HOME_OBJECT = kWithHomeObjectBit,
+  METHOD_WITH_NAME_AND_HOME_OBJECT = kWithNameBit | kWithHomeObjectBit,
 
   // With writable prototype.
   FUNCTION_WITH_WRITEABLE_PROTOTYPE = kWithWritablePrototypeBit,
   FUNCTION_WITH_NAME_AND_WRITEABLE_PROTOTYPE =
       kWithWritablePrototypeBit | kWithNameBit,
+  FUNCTION_WITH_HOME_OBJECT_AND_WRITEABLE_PROTOTYPE =
+      kWithWritablePrototypeBit | kWithHomeObjectBit,
+  FUNCTION_WITH_NAME_AND_HOME_OBJECT_AND_WRITEABLE_PROTOTYPE =
+      kWithWritablePrototypeBit | kWithNameBit | kWithHomeObjectBit,
 
   // With readonly prototype.
   FUNCTION_WITH_READONLY_PROTOTYPE = kWithReadonlyPrototypeBit,
@@ -99,15 +106,12 @@ enum class NumberCacheMode { kIgnore, kSetOnly, kBoth };
 // Interface for handle based allocation.
 class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
  public:
-  inline ReadOnlyRoots read_only_roots() const;
+  inline ReadOnlyRoots read_only_roots();
 
   template <typename T>
   Handle<T> MakeHandle(T obj) {
     return handle(obj, isolate());
   }
-
-  Handle<BaselineData> NewBaselineData(Handle<Code> code,
-                                       Handle<HeapObject> function_data);
 
   Handle<Oddball> NewOddball(Handle<Map> map, const char* to_string,
                              Handle<Object> to_number, const char* type_of,
@@ -150,6 +154,8 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
   // Allocate a new fixed double array with hole values.
   Handle<FixedArrayBase> NewFixedDoubleArrayWithHoles(int size);
 
+  Handle<FrameArray> NewFrameArray(int number_of_frames);
+
   // Allocates a NameDictionary with an internal capacity calculated such that
   // |at_least_space_for| entries can be added without reallocating.
   Handle<NameDictionary> NewNameDictionary(int at_least_space_for);
@@ -170,8 +176,6 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
   Handle<SmallOrderedNameDictionary> NewSmallOrderedNameDictionary(
       int capacity = kSmallOrderedHashMapMinCapacity,
       AllocationType allocation = AllocationType::kYoung);
-
-  Handle<SwissNameDictionary> CreateCanonicalEmptySwissNameDictionary();
 
   // Create a new PrototypeInfo struct.
   Handle<PrototypeInfo> NewPrototypeInfo();
@@ -369,13 +373,10 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
 
   Handle<BreakPointInfo> NewBreakPointInfo(int source_position);
   Handle<BreakPoint> NewBreakPoint(int id, Handle<String> condition);
-
-  Handle<StackFrameInfo> NewStackFrameInfo(Handle<Object> receiver_or_instance,
-                                           Handle<Object> function,
-                                           Handle<HeapObject> code_object,
-                                           int code_offset_or_source_position,
-                                           int flags,
-                                           Handle<FixedArray> parameters);
+  Handle<StackTraceFrame> NewStackTraceFrame(Handle<FrameArray> frame_array,
+                                             int index);
+  Handle<StackFrameInfo> NewStackFrameInfo(Handle<FrameArray> frame_array,
+                                           int index);
 
   // Allocate various microtasks.
   Handle<CallableTask> NewCallableTask(Handle<JSReceiver> callable,
@@ -392,9 +393,7 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
   Handle<Cell> NewCell(Handle<Object> value);
 
   Handle<PropertyCell> NewPropertyCell(
-      Handle<Name> name, PropertyDetails details, Handle<Object> value,
-      AllocationType allocation = AllocationType::kOld);
-  Handle<PropertyCell> NewProtector();
+      Handle<Name> name, AllocationType allocation = AllocationType::kOld);
 
   Handle<FeedbackCell> NewNoClosuresCell(Handle<HeapObject> value);
   Handle<FeedbackCell> NewOneClosureCell(Handle<HeapObject> value);
@@ -555,17 +554,8 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
 
   Handle<JSModuleNamespace> NewJSModuleNamespace();
 
-#if V8_ENABLE_WEBASSEMBLY
   Handle<WasmTypeInfo> NewWasmTypeInfo(Address type_address,
-                                       Handle<Map> opt_parent);
-
-  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmExportedFunction(
-      Handle<String> name, Handle<WasmExportedFunctionData> data);
-  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmJSFunction(
-      Handle<String> name, Handle<WasmJSFunctionData> data);
-  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmCapiFunction(
-      Handle<WasmCapiFunctionData> data);
-#endif  // V8_ENABLE_WEBASSEMBLY
+                                       Handle<Map> parent);
 
   Handle<SourceTextModule> NewSourceTextModule(Handle<SharedFunctionInfo> code);
   Handle<SyntheticModule> NewSyntheticModule(
@@ -692,6 +682,13 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
       MaybeHandle<String> maybe_name,
       Handle<FunctionTemplateInfo> function_template_info, FunctionKind kind);
 
+  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmExportedFunction(
+      Handle<String> name, Handle<WasmExportedFunctionData> data);
+  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmJSFunction(
+      Handle<String> name, Handle<WasmJSFunctionData> data);
+  Handle<SharedFunctionInfo> NewSharedFunctionInfoForWasmCapiFunction(
+      Handle<WasmCapiFunctionData> data);
+
   Handle<SharedFunctionInfo> NewSharedFunctionInfoForBuiltin(
       MaybeHandle<String> name, int builtin_index,
       FunctionKind kind = kNormalFunction);
@@ -706,6 +703,10 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
 
   static bool IsFunctionModeWithName(FunctionMode function_mode) {
     return (function_mode & kWithNameBit) != 0;
+  }
+
+  static bool IsFunctionModeWithHomeObject(FunctionMode function_mode) {
+    return (function_mode & kWithHomeObjectBit) != 0;
   }
 
   Handle<Map> CreateSloppyFunctionMap(
@@ -828,29 +829,18 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
     }
 
     CodeBuilder& set_builtin_index(int32_t builtin_index) {
-      DCHECK_IMPLIES(builtin_index != Builtins::kNoBuiltinId,
-                     !CodeKindIsJSFunction(kind_));
       builtin_index_ = builtin_index;
       return *this;
     }
 
     CodeBuilder& set_inlined_bytecode_size(uint32_t size) {
-      DCHECK_IMPLIES(size != 0, CodeKindIsOptimizedJSFunction(kind_));
       inlined_bytecode_size_ = size;
       return *this;
     }
 
     CodeBuilder& set_source_position_table(Handle<ByteArray> table) {
-      DCHECK_NE(kind_, CodeKind::BASELINE);
       DCHECK(!table.is_null());
-      position_table_ = table;
-      return *this;
-    }
-
-    CodeBuilder& set_bytecode_offset_table(Handle<ByteArray> table) {
-      DCHECK_EQ(kind_, CodeKind::BASELINE);
-      DCHECK(!table.is_null());
-      position_table_ = table;
+      source_position_table_ = table;
       return *this;
     }
 
@@ -862,13 +852,11 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
     }
 
     CodeBuilder& set_is_turbofanned() {
-      DCHECK(!CodeKindIsUnoptimizedJSFunction(kind_));
       is_turbofanned_ = true;
       return *this;
     }
 
     CodeBuilder& set_is_executable(bool executable) {
-      DCHECK_EQ(kind_, CodeKind::BUILTIN);
       is_executable_ = executable;
       return *this;
     }
@@ -903,9 +891,7 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
     int32_t builtin_index_ = Builtins::kNoBuiltinId;
     uint32_t inlined_bytecode_size_ = 0;
     int32_t kind_specific_flags_ = 0;
-    // Either source_position_table for non-baseline code
-    // or bytecode_offset_table for baseline code.
-    Handle<ByteArray> position_table_;
+    Handle<ByteArray> source_position_table_;
     Handle<DeoptimizationData> deoptimization_data_ =
         DeoptimizationData::Empty(isolate_);
     BasicBlockProfilerData* profiler_data_ = nullptr;
@@ -923,7 +909,7 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
   HeapObject AllocateRaw(int size, AllocationType allocation,
                          AllocationAlignment alignment = kWordAligned);
 
-  Isolate* isolate() const {
+  Isolate* isolate() {
     // Downcast to the privately inherited sub-class using c-style casts to
     // avoid undefined behavior (as static_cast cannot cast across private
     // bases).
@@ -944,12 +930,10 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
       Handle<Map> map, Handle<FixedArrayBase> elements,
       Handle<JSArrayBuffer> buffer, size_t byte_offset, size_t byte_length);
 
-  Symbol NewSymbolInternal(AllocationType allocation = AllocationType::kOld);
-
   // Allocates new context with given map, sets length and initializes the
   // after-header part with uninitialized values and leaves the context header
   // uninitialized.
-  Context NewContextInternal(Handle<Map> map, int size,
+  Handle<Context> NewContext(Handle<Map> map, int size,
                              int variadic_part_length,
                              AllocationType allocation);
 
@@ -1003,9 +987,11 @@ class V8_EXPORT_PRIVATE Factory : public FactoryBase<Factory> {
                                    AllocationSite allocation_site);
 
   // Initializes a JSObject based on its map.
-  void InitializeJSObjectFromMap(JSObject obj, Object properties, Map map);
+  void InitializeJSObjectFromMap(Handle<JSObject> obj,
+                                 Handle<Object> properties, Handle<Map> map);
   // Initializes JSObject body starting at given offset.
-  void InitializeJSObjectBody(JSObject obj, Map map, int start_offset);
+  void InitializeJSObjectBody(Handle<JSObject> obj, Handle<Map> map,
+                              int start_offset);
 
   Handle<WeakArrayList> NewUninitializedWeakArrayList(
       int capacity, AllocationType allocation = AllocationType::kYoung);

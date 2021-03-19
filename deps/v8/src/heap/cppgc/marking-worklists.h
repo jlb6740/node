@@ -63,7 +63,6 @@ class MarkingWorklists {
 
   struct EphemeronPairItem {
     const void* key;
-    const void* value;
     TraceDescriptor value_desc;
   };
 

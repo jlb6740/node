@@ -45,9 +45,6 @@ void VerificationState::VerifyMarked(const void* base_object_payload) const {
 void MarkingVerifierBase::VisitInConstructionConservatively(
     HeapObjectHeader& header, TraceConservativelyCallback callback) {
   CHECK(header.IsMarked());
-  if (in_construction_objects_->find(&header) !=
-      in_construction_objects_->end())
-    return;
   in_construction_objects_->insert(&header);
   callback(this, header);
 }
@@ -95,7 +92,7 @@ class VerificationVisitor final : public cppgc::Visitor {
 
   void VisitWeakContainer(const void* object, TraceDescriptor,
                           TraceDescriptor weak_desc, WeakCallback,
-                          const void*) final {
+                          const void*) {
     if (!object) return;
 
     // Contents of weak containers are found themselves through page iteration

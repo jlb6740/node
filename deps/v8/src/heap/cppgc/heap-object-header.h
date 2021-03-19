@@ -37,16 +37,16 @@ namespace internal {
 // | unused          |    1 |                                          |
 // | in construction |    1 | In construction encoded as |false|.      |
 // +-----------------+------+------------------------------------------+
-// | size            |   15 | 17 bits because allocations are aligned. |
+// | size            |   14 | 17 bits because allocations are aligned. |
+// | unused          |    1 |                                          |
 // | mark bit        |    1 |                                          |
 // +-----------------+------+------------------------------------------+
 //
 // Notes:
 // - See |GCInfoTable| for constraints on GCInfoIndex.
-// - |size| for regular objects is encoded with 15 bits but can actually
+// - |size| for regular objects is encoded with 14 bits but can actually
 //   represent sizes up to |kBlinkPageSize| (2^17) because allocations are
-//   always 4 byte aligned (see kAllocationGranularity) on 32bit. 64bit uses
-//   8 byte aligned allocations which leaves 1 bit unused.
+//   always 8 byte aligned (see kAllocationGranularity).
 // - |size| for large objects is encoded as 0. The size of a large object is
 //   stored in |LargeObjectPage::PayloadSize()|.
 // - |mark bit| and |in construction| bits are located in separate 16-bit halves
@@ -64,8 +64,6 @@ class HeapObjectHeader {
 
   // The payload starts directly after the HeapObjectHeader.
   inline Address Payload() const;
-  template <AccessMode mode = AccessMode::kNonAtomic>
-  inline Address PayloadEnd() const;
 
   template <AccessMode mode = AccessMode::kNonAtomic>
   inline GCInfoIndex GetGCInfoIndex() const;
@@ -73,9 +71,6 @@ class HeapObjectHeader {
   template <AccessMode mode = AccessMode::kNonAtomic>
   inline size_t GetSize() const;
   inline void SetSize(size_t size);
-
-  template <AccessMode mode = AccessMode::kNonAtomic>
-  inline size_t ObjectSize() const;
 
   template <AccessMode mode = AccessMode::kNonAtomic>
   inline bool IsLargeObject() const;
@@ -102,8 +97,7 @@ class HeapObjectHeader {
 
   V8_EXPORT_PRIVATE HeapObjectName GetName() const;
 
-  template <AccessMode = AccessMode::kNonAtomic>
-  void Trace(Visitor*) const;
+  V8_EXPORT_PRIVATE void Trace(Visitor*) const;
 
  private:
   enum class EncodedHalf : uint8_t { kLow, kHigh };
@@ -114,17 +108,18 @@ class HeapObjectHeader {
   using GCInfoIndexField = UnusedField1::Next<GCInfoIndex, 14>;
   // Used in |encoded_low_|.
   using MarkBitField = v8::base::BitField16<bool, 0, 1>;
+  using UnusedField2 = MarkBitField::Next<bool, 1>;
   using SizeField = void;  // Use EncodeSize/DecodeSize instead.
 
   static constexpr size_t DecodeSize(uint16_t encoded) {
     // Essentially, gets optimized to << 1.
-    using SizeField = MarkBitField::Next<size_t, 15>;
+    using SizeField = UnusedField2::Next<size_t, 14>;
     return SizeField::decode(encoded) * kAllocationGranularity;
   }
 
   static constexpr uint16_t EncodeSize(size_t size) {
     // Essentially, gets optimized to >> 1.
-    using SizeField = MarkBitField::Next<size_t, 15>;
+    using SizeField = UnusedField2::Next<size_t, 14>;
     return SizeField::encode(size / kAllocationGranularity);
   }
 
@@ -143,10 +138,6 @@ class HeapObjectHeader {
   uint16_t encoded_high_;
   uint16_t encoded_low_;
 };
-
-static_assert(kAllocationGranularity == sizeof(HeapObjectHeader),
-              "sizeof(HeapObjectHeader) must match allocation granularity to "
-              "guarantee alignment");
 
 // static
 HeapObjectHeader& HeapObjectHeader::FromPayload(void* payload) {
@@ -189,13 +180,6 @@ Address HeapObjectHeader::Payload() const {
 }
 
 template <AccessMode mode>
-Address HeapObjectHeader::PayloadEnd() const {
-  DCHECK(!IsLargeObject());
-  return reinterpret_cast<Address>(const_cast<HeapObjectHeader*>(this)) +
-         GetSize<mode>();
-}
-
-template <AccessMode mode>
 GCInfoIndex HeapObjectHeader::GetGCInfoIndex() const {
   const uint16_t encoded =
       LoadEncoded<mode, EncodedHalf::kHigh, std::memory_order_acquire>();
@@ -214,12 +198,7 @@ size_t HeapObjectHeader::GetSize() const {
 
 void HeapObjectHeader::SetSize(size_t size) {
   DCHECK(!IsMarked());
-  encoded_low_ = EncodeSize(size);
-}
-
-template <AccessMode mode>
-size_t HeapObjectHeader::ObjectSize() const {
-  return GetSize<mode>() - sizeof(HeapObjectHeader);
+  encoded_low_ |= EncodeSize(size);
 }
 
 template <AccessMode mode>
@@ -276,13 +255,6 @@ bool HeapObjectHeader::IsFree() const {
 bool HeapObjectHeader::IsFinalizable() const {
   const GCInfo& gc_info = GlobalGCInfoTable::GCInfoFromIndex(GetGCInfoIndex());
   return gc_info.finalize;
-}
-
-template <AccessMode mode>
-void HeapObjectHeader::Trace(Visitor* visitor) const {
-  const GCInfo& gc_info =
-      GlobalGCInfoTable::GCInfoFromIndex(GetGCInfoIndex<mode>());
-  return gc_info.trace(visitor, Payload());
 }
 
 template <AccessMode mode, HeapObjectHeader::EncodedHalf part,

@@ -92,6 +92,8 @@ class OrderedHashTable : public FixedArray {
 
   InternalIndex FindEntry(Isolate* isolate, Object key);
 
+  Object SlowReverseLookup(Isolate* isolate, Object value);
+
   int NumberOfElements() const {
     return Smi::ToInt(get(NumberOfElementsIndex()));
   }
@@ -781,6 +783,10 @@ class V8_EXPORT_PRIVATE OrderedNameDictionary
   InternalIndex FindEntry(LocalIsolate* isolate, Handle<Object> key) {
     return FindEntry(isolate, *key);
   }
+
+  int NumberOfEnumerableProperties();
+
+  Object SlowReverseLookup(Isolate* isolate, Object value);
 
   static Handle<OrderedNameDictionary> DeleteEntry(
       Isolate* isolate, Handle<OrderedNameDictionary> table,

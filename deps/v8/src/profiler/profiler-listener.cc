@@ -11,7 +11,6 @@
 #include "src/deoptimizer/deoptimizer.h"
 #include "src/handles/handles-inl.h"
 #include "src/objects/code-inl.h"
-#include "src/objects/code.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/script-inl.h"
 #include "src/objects/shared-function-info-inl.h"
@@ -19,10 +18,7 @@
 #include "src/profiler/cpu-profiler.h"
 #include "src/profiler/profile-generator-inl.h"
 #include "src/utils/vector.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-manager.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
@@ -119,41 +115,21 @@ void ProfilerListener::CodeCreateEvent(LogEventsAndTags tag,
 
     is_shared_cross_origin = script->origin_options().IsSharedCrossOrigin();
 
-    bool is_baseline = abstract_code->kind() == CodeKind::BASELINE;
-    Handle<ByteArray> source_position_table(
-        abstract_code->SourcePositionTable(*shared), isolate_);
-    std::unique_ptr<baseline::BytecodeOffsetIterator> baseline_iterator =
-        nullptr;
-    if (is_baseline) {
-      Handle<BytecodeArray> bytecodes(shared->GetBytecodeArray(isolate_),
-                                      isolate_);
-      Handle<ByteArray> bytecode_offsets(
-          abstract_code->GetCode().bytecode_offset_table(), isolate_);
-      baseline_iterator = std::make_unique<baseline::BytecodeOffsetIterator>(
-          bytecode_offsets, bytecodes);
-    }
     // Add each position to the source position table and store inlining stacks
     // for inline positions. We store almost the same information in the
     // profiler as is stored on the code object, except that we transform source
     // positions to line numbers here, because we only care about attributing
     // ticks to a given line.
-    for (SourcePositionTableIterator it(source_position_table); !it.done();
-         it.Advance()) {
+    for (SourcePositionTableIterator it(
+             handle(abstract_code->source_position_table(), isolate_));
+         !it.done(); it.Advance()) {
       int position = it.source_position().ScriptOffset();
       int inlining_id = it.source_position().InliningId();
-      int code_offset = it.code_offset();
-      if (is_baseline) {
-        // Use the bytecode offset to calculate pc offset for baseline code.
-        baseline_iterator->AdvanceToBytecodeOffset(code_offset);
-        code_offset =
-            static_cast<int>(baseline_iterator->current_pc_start_offset());
-      }
 
       if (inlining_id == SourcePosition::kNotInlined) {
         int line_number = script->GetLineNumber(position) + 1;
-        line_table->SetPosition(code_offset, line_number, inlining_id);
+        line_table->SetPosition(it.code_offset(), line_number, inlining_id);
       } else {
-        DCHECK(!is_baseline);
         DCHECK(abstract_code->IsCode());
         Handle<Code> code = handle(abstract_code->GetCode(), isolate_);
         std::vector<SourcePositionInfo> stack =
@@ -164,7 +140,7 @@ void ProfilerListener::CodeCreateEvent(LogEventsAndTags tag,
         // then the script of the inlined frames may be different to the script
         // of |shared|.
         int line_number = stack.front().line + 1;
-        line_table->SetPosition(code_offset, line_number, inlining_id);
+        line_table->SetPosition(it.code_offset(), line_number, inlining_id);
 
         std::vector<CodeEntryAndLineNumber> inline_stack;
         for (SourcePositionInfo& pos_info : stack) {
@@ -223,24 +199,22 @@ void ProfilerListener::CodeCreateEvent(LogEventsAndTags tag,
   DispatchCodeEvent(evt_rec);
 }
 
-#if V8_ENABLE_WEBASSEMBLY
 void ProfilerListener::CodeCreateEvent(LogEventsAndTags tag,
                                        const wasm::WasmCode* code,
                                        wasm::WasmName name,
                                        const char* source_url, int code_offset,
                                        int script_id) {
+  DCHECK_NOT_NULL(source_url);
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
   CodeCreateEventRecord* rec = &evt_rec.CodeCreateEventRecord_;
   rec->instruction_start = code->instruction_start();
-  rec->entry =
-      new CodeEntry(tag, GetName(name), GetName(source_url), 1, code_offset + 1,
-                    nullptr, true, CodeEntry::CodeType::WASM);
+  rec->entry = new CodeEntry(tag, GetName(name), GetName(source_url), 1,
+                             code_offset + 1, nullptr, true);
   rec->entry->set_script_id(script_id);
   rec->entry->set_position(code_offset);
   rec->instruction_size = code->instructions().length();
   DispatchCodeEvent(evt_rec);
 }
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 void ProfilerListener::CallbackEvent(Handle<Name> name, Address entry_point) {
   CodeEventsContainer evt_rec(CodeEventRecord::CODE_CREATION);
@@ -321,14 +295,6 @@ void ProfilerListener::CodeDeoptEvent(Handle<Code> code, DeoptimizeKind kind,
   // When a function is deoptimized, we store the deoptimized frame information
   // for the use of GetDeoptInfos().
   AttachDeoptInlinedFrames(code, rec);
-  DispatchCodeEvent(evt_rec);
-}
-
-void ProfilerListener::BytecodeFlushEvent(Address compiled_data_start) {
-  CodeEventsContainer evt_rec(CodeEventRecord::BYTECODE_FLUSH);
-  BytecodeFlushEventRecord* rec = &evt_rec.BytecodeFlushEventRecord_;
-  rec->instruction_start = compiled_data_start + BytecodeArray::kHeaderSize;
-
   DispatchCodeEvent(evt_rec);
 }
 

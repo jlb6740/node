@@ -350,7 +350,6 @@ class SystemTest(unittest.TestCase):
           'no_i18n\n'
           'tsan\n'
           'ubsan_vptr\n'
-          'webassembly\n'
           '>>> Running tests for ia32.release')
       self.assertIn(expect_text, result.stdout, result)
       self.assertEqual(0, result.returncode, result)

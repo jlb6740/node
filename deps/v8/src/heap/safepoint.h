@@ -24,14 +24,8 @@ class GlobalSafepoint {
  public:
   explicit GlobalSafepoint(Heap* heap);
 
-  // Wait until unpark operation is safe again
-  void WaitInUnpark();
-
-  // Enter the safepoint from a running thread
-  void WaitInSafepoint();
-
-  // Running thread reached a safepoint by parking itself.
-  void NotifyPark();
+  // Enter the safepoint from a thread
+  void EnterFromThread(LocalHeap* local_heap);
 
   V8_EXPORT_PRIVATE bool ContainsLocalHeap(LocalHeap* local_heap);
   V8_EXPORT_PRIVATE bool ContainsAnyLocalHeap();
@@ -54,24 +48,15 @@ class GlobalSafepoint {
  private:
   class Barrier {
     base::Mutex mutex_;
-    base::ConditionVariable cv_resume_;
-    base::ConditionVariable cv_stopped_;
+    base::ConditionVariable cond_;
     bool armed_;
 
-    int stopped_ = 0;
-
-    bool IsArmed() { return armed_; }
-
    public:
-    Barrier() : armed_(false), stopped_(0) {}
+    Barrier() : armed_(false) {}
 
     void Arm();
     void Disarm();
-    void WaitUntilRunningThreadsInSafepoint(int running);
-
-    void WaitInSafepoint();
-    void WaitInUnpark();
-    void NotifyPark();
+    void Wait();
   };
 
   void EnterSafepointScope();

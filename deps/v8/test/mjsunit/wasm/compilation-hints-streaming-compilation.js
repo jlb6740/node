@@ -74,9 +74,9 @@ load('test/mjsunit/wasm/wasm-module-builder.js');
   assertPromiseResult(WebAssembly.instantiateStreaming(Promise.resolve(bytes),
                                                        {mod: {pow: Math.pow}})
     .then(assertUnreachable,
-          error => assertEquals("WebAssembly.instantiateStreaming(): call[0] " +
+          error => assertEquals("WebAssembly.instantiateStreaming(): call[1] " +
                                 "expected type f32, found local.get of type " +
-                                "i32 @+92",
+                                "i32 @+94",
                                 error.message)));
 })();
 

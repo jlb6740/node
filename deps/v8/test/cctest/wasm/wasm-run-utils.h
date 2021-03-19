@@ -233,14 +233,10 @@ class TestingModuleBuilder {
 
   void SetExecutable() { native_module_->SetExecutable(true); }
 
-  void SetTieredDown() {
-    native_module_->SetTieringState(kTieredDown);
-    execution_tier_ = TestExecutionTier::kLiftoff;
-  }
-
   void TierDown() {
-    SetTieredDown();
+    native_module_->SetTieringState(kTieredDown);
     native_module_->RecompileForTiering();
+    execution_tier_ = TestExecutionTier::kLiftoff;
   }
 
   CompilationEnv CreateCompilationEnv();
@@ -531,19 +527,6 @@ class WasmRunnerBase : public InitializedHandleScope {
   static bool trap_happened;
 };
 
-template <typename T>
-inline WasmValue WasmValueInitializer(T value) {
-  return WasmValue(value);
-}
-template <>
-inline WasmValue WasmValueInitializer(int8_t value) {
-  return WasmValue(static_cast<int32_t>(value));
-}
-template <>
-inline WasmValue WasmValueInitializer(int16_t value) {
-  return WasmValue(static_cast<int32_t>(value));
-}
-
 template <typename ReturnType, typename... ParamTypes>
 class WasmRunner : public WasmRunnerBase {
  public:
@@ -570,11 +553,6 @@ class WasmRunner : public WasmRunnerBase {
                    lower_simd) {}
 
   ReturnType Call(ParamTypes... p) {
-    Isolate* isolate = CcTest::InitIsolateOnce();
-    // Save the original context, because CEntry (for runtime calls) will
-    // reset / invalidate it when returning.
-    SaveContext save_context(isolate);
-
     DCHECK(compiled_);
     if (interpret()) return CallInterpreter(p...);
 
@@ -604,7 +582,7 @@ class WasmRunner : public WasmRunnerBase {
 
   ReturnType CallInterpreter(ParamTypes... p) {
     interpreter()->Reset();
-    std::array<WasmValue, sizeof...(p)> args{{WasmValueInitializer(p)...}};
+    std::array<WasmValue, sizeof...(p)> args{{WasmValue(p)...}};
     interpreter()->InitFrame(function(), args.data());
     interpreter()->Run();
     CHECK_GT(interpreter()->NumInterpretedCalls(), 0);

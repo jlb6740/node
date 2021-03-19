@@ -71,7 +71,6 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
   class ExpressionResultScope;
   class FeedbackSlotCache;
   class IteratorRecord;
-  class MultipleEntryBlockContextScope;
   class LoopScope;
   class NaryCodeCoverageSlots;
   class OptionalChainNullLabelScope;
@@ -252,8 +251,8 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
       LookupHoistingMode lookup_hoisting_mode = LookupHoistingMode::kNormal);
   void BuildLiteralCompareNil(Token::Value compare_op,
                               BytecodeArrayBuilder::NilValue nil);
-  void BuildReturn(int source_position);
-  void BuildAsyncReturn(int source_position);
+  void BuildReturn(int source_position = kNoSourcePosition);
+  void BuildAsyncReturn(int source_position = kNoSourcePosition);
   void BuildAsyncGeneratorReturn();
   void BuildReThrow();
   void BuildHoleCheckForVariableAssignment(Variable* variable, Token::Value op);
@@ -312,14 +311,11 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
   void BuildInvalidPropertyAccess(MessageTemplate tmpl, Property* property);
   void BuildPrivateBrandCheck(Property* property, Register object,
                               MessageTemplate tmpl);
-  void BuildPrivateMethodIn(Variable* private_name,
-                            Expression* object_expression);
   void BuildPrivateGetterAccess(Register obj, Register access_pair);
   void BuildPrivateSetterAccess(Register obj, Register access_pair,
                                 Register value);
   void BuildPrivateMethods(ClassLiteral* expr, bool is_static,
                            Register home_object);
-  void BuildClassProperty(ClassLiteral::Property* property);
   void BuildClassLiteral(ClassLiteral* expr, Register name);
   void VisitClassLiteral(ClassLiteral* expr, Register name);
   void VisitNewTargetVariable(Variable* variable);
@@ -329,7 +325,10 @@ class BytecodeGenerator final : public AstVisitor<BytecodeGenerator> {
                                          Register instance);
   void BuildGeneratorObjectVariableInitialization();
   void VisitBlockDeclarationsAndStatements(Block* stmt);
-  void VisitLiteralAccessor(LiteralProperty* property, Register value_out);
+  void VisitSetHomeObject(Register value, Register home_object,
+                          LiteralProperty* property);
+  void VisitLiteralAccessor(Register home_object, LiteralProperty* property,
+                            Register value_out);
   void VisitForInAssignment(Expression* expr);
   void VisitModuleNamespaceImports();
 

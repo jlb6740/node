@@ -10,7 +10,6 @@
 #include "src/codegen/tick-counter.h"
 #include "src/compiler/graph.h"
 #include "src/compiler/js-heap-broker.h"
-#include "src/compiler/node-observer.h"
 #include "src/compiler/node-properties.h"
 #include "src/compiler/node.h"
 #include "src/compiler/verifier.h"
@@ -29,19 +28,8 @@ enum class GraphReducer::State : uint8_t {
 
 void Reducer::Finalize() {}
 
-Reduction Reducer::Reduce(Node* node,
-                          ObserveNodeManager* observe_node_manager) {
-  Reduction reduction = Reduce(node);
-  if (V8_UNLIKELY(observe_node_manager && reduction.Changed())) {
-    observe_node_manager->OnNodeChanged(reducer_name(), node,
-                                        reduction.replacement());
-  }
-  return reduction;
-}
-
 GraphReducer::GraphReducer(Zone* zone, Graph* graph, TickCounter* tick_counter,
-                           JSHeapBroker* broker, Node* dead,
-                           ObserveNodeManager* observe_node_manager)
+                           JSHeapBroker* broker, Node* dead)
     : graph_(graph),
       dead_(dead),
       state_(graph, 4),
@@ -49,8 +37,7 @@ GraphReducer::GraphReducer(Zone* zone, Graph* graph, TickCounter* tick_counter,
       revisit_(zone),
       stack_(zone),
       tick_counter_(tick_counter),
-      broker_(broker),
-      observe_node_manager_(observe_node_manager) {
+      broker_(broker) {
   if (dead != nullptr) {
     NodeProperties::SetType(dead_, Type::None());
   }
@@ -102,7 +89,7 @@ Reduction GraphReducer::Reduce(Node* const node) {
   for (auto i = reducers_.begin(); i != reducers_.end();) {
     if (i != skip) {
       tick_counter_->TickAndMaybeEnterSafepoint();
-      Reduction reduction = (*i)->Reduce(node, observe_node_manager_);
+      Reduction reduction = (*i)->Reduce(node);
       if (!reduction.Changed()) {
         // No change from this reducer.
       } else if (reduction.replacement() == node) {

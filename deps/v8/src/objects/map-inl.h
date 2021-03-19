@@ -12,6 +12,7 @@
 #include "src/objects/field-type.h"
 #include "src/objects/instance-type-inl.h"
 #include "src/objects/js-function-inl.h"
+#include "src/objects/layout-descriptor-inl.h"
 #include "src/objects/map.h"
 #include "src/objects/objects-inl.h"
 #include "src/objects/property.h"
@@ -20,10 +21,7 @@
 #include "src/objects/templates-inl.h"
 #include "src/objects/transitions-inl.h"
 #include "src/objects/transitions.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-objects-inl.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 // Has to be the last include (doesn't have include guards):
 #include "src/objects/object-macros.h"
@@ -36,8 +34,6 @@ namespace internal {
 OBJECT_CONSTRUCTORS_IMPL(Map, HeapObject)
 CAST_ACCESSOR(Map)
 
-ACCESSORS(Map, instance_descriptors, DescriptorArray,
-          kInstanceDescriptorsOffset)
 RELAXED_ACCESSORS(Map, instance_descriptors, DescriptorArray,
                   kInstanceDescriptorsOffset)
 RELEASE_ACQUIRE_ACCESSORS(Map, instance_descriptors, DescriptorArray,
@@ -47,9 +43,11 @@ RELEASE_ACQUIRE_ACCESSORS(Map, instance_descriptors, DescriptorArray,
 // We need to use release-store and acquire-load accessor pairs to ensure
 // that the concurrent marking thread observes initializing stores of the
 // layout descriptor.
-WEAK_ACCESSORS(Map, raw_transitions, kTransitionsOrPrototypeInfoOffset)
-RELEASE_ACQUIRE_WEAK_ACCESSORS(Map, raw_transitions,
-                               kTransitionsOrPrototypeInfoOffset)
+RELEASE_ACQUIRE_ACCESSORS_CHECKED(Map, layout_descriptor, LayoutDescriptor,
+                                  kLayoutDescriptorOffset,
+                                  FLAG_unbox_double_fields)
+SYNCHRONIZED_WEAK_ACCESSORS(Map, raw_transitions,
+                            kTransitionsOrPrototypeInfoOffset)
 
 ACCESSORS_CHECKED2(Map, prototype, HeapObject, kPrototypeOffset, true,
                    value.IsNull() || value.IsJSReceiver())
@@ -62,26 +60,21 @@ ACCESSORS_CHECKED(Map, prototype_info, Object,
 // is explicitly allowlisted here. The former is never modified after the map
 // is setup but it's being read by concurrent marker when pointer compression
 // is enabled. The latter bit can be modified on a live objects.
-BIT_FIELD_ACCESSORS(Map, relaxed_bit_field, has_non_instance_prototype,
+BIT_FIELD_ACCESSORS(Map, bit_field, has_non_instance_prototype,
                     Map::Bits1::HasNonInstancePrototypeBit)
-BIT_FIELD_ACCESSORS(Map, relaxed_bit_field, has_prototype_slot,
+BIT_FIELD_ACCESSORS(Map, bit_field, is_callable, Map::Bits1::IsCallableBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, has_named_interceptor,
+                    Map::Bits1::HasNamedInterceptorBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, has_indexed_interceptor,
+                    Map::Bits1::HasIndexedInterceptorBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, is_undetectable,
+                    Map::Bits1::IsUndetectableBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, is_access_check_needed,
+                    Map::Bits1::IsAccessCheckNeededBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, is_constructor,
+                    Map::Bits1::IsConstructorBit)
+BIT_FIELD_ACCESSORS(Map, bit_field, has_prototype_slot,
                     Map::Bits1::HasPrototypeSlotBit)
-
-// These are fine to be written as non-atomic since we don't have data races.
-// However, they have to be read atomically from the background since the
-// |bit_field| as a whole can mutate when using the above setters.
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, is_callable,
-                     Map::Bits1::IsCallableBit)
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, has_named_interceptor,
-                     Map::Bits1::HasNamedInterceptorBit)
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, has_indexed_interceptor,
-                     Map::Bits1::HasIndexedInterceptorBit)
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, is_undetectable,
-                     Map::Bits1::IsUndetectableBit)
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, is_access_check_needed,
-                     Map::Bits1::IsAccessCheckNeededBit)
-BIT_FIELD_ACCESSORS2(Map, relaxed_bit_field, bit_field, is_constructor,
-                     Map::Bits1::IsConstructorBit)
 
 // |bit_field2| fields.
 BIT_FIELD_ACCESSORS(Map, bit_field2, new_target_is_base,
@@ -163,6 +156,18 @@ bool Map::EquivalentToForNormalization(const Map other,
   return EquivalentToForNormalization(other, elements_kind(), mode);
 }
 
+bool Map::IsUnboxedDoubleField(FieldIndex index) const {
+  IsolateRoot isolate = GetIsolateForPtrCompr(*this);
+  return IsUnboxedDoubleField(isolate, index);
+}
+
+bool Map::IsUnboxedDoubleField(IsolateRoot isolate, FieldIndex index) const {
+  if (!FLAG_unbox_double_fields) return false;
+  if (!index.is_inobject()) return false;
+  return !layout_descriptor(isolate, kAcquireLoad)
+              .IsTagged(index.property_index());
+}
+
 bool Map::TooManyFastProperties(StoreOrigin store_origin) const {
   if (UnusedPropertyFields() != 0) return false;
   if (is_prototype_map()) return false;
@@ -182,7 +187,7 @@ bool Map::TooManyFastProperties(StoreOrigin store_origin) const {
 }
 
 PropertyDetails Map::GetLastDescriptorDetails(Isolate* isolate) const {
-  return instance_descriptors(isolate).GetDetails(LastAdded());
+  return instance_descriptors(isolate, kRelaxedLoad).GetDetails(LastAdded());
 }
 
 InternalIndex Map::LastAdded() const {
@@ -196,7 +201,7 @@ int Map::NumberOfOwnDescriptors() const {
 }
 
 void Map::SetNumberOfOwnDescriptors(int number) {
-  DCHECK_LE(number, instance_descriptors().number_of_descriptors());
+  DCHECK_LE(number, instance_descriptors(kRelaxedLoad).number_of_descriptors());
   CHECK_LE(static_cast<unsigned>(number),
            static_cast<unsigned>(kMaxNumberOfDescriptors));
   set_bit_field3(
@@ -310,17 +315,18 @@ int Map::GetInObjectPropertyOffset(int index) const {
 
 Handle<Map> Map::AddMissingTransitionsForTesting(
     Isolate* isolate, Handle<Map> split_map,
-    Handle<DescriptorArray> descriptors) {
-  return AddMissingTransitions(isolate, split_map, descriptors);
+    Handle<DescriptorArray> descriptors,
+    Handle<LayoutDescriptor> full_layout_descriptor) {
+  return AddMissingTransitions(isolate, split_map, descriptors,
+                               full_layout_descriptor);
 }
 
 InstanceType Map::instance_type() const {
-  return static_cast<InstanceType>(
-      RELAXED_READ_UINT16_FIELD(*this, kInstanceTypeOffset));
+  return static_cast<InstanceType>(ReadField<uint16_t>(kInstanceTypeOffset));
 }
 
 void Map::set_instance_type(InstanceType value) {
-  RELAXED_WRITE_UINT16_FIELD(*this, kInstanceTypeOffset, value);
+  WriteField<uint16_t>(kInstanceTypeOffset, value);
 }
 
 int Map::UnusedPropertyFields() const {
@@ -442,18 +448,12 @@ void Map::AccountAddedOutOfObjectPropertyField(int unused_in_property_array) {
   DCHECK_EQ(unused_in_property_array, UnusedPropertyFields());
 }
 
-byte Map::bit_field() const { return ReadField<byte>(kBitFieldOffset); }
+byte Map::bit_field() const {
+  return ACQUIRE_READ_BYTE_FIELD(*this, kBitFieldOffset);
+}
 
 void Map::set_bit_field(byte value) {
-  WriteField<byte>(kBitFieldOffset, value);
-}
-
-byte Map::relaxed_bit_field() const {
-  return RELAXED_READ_BYTE_FIELD(*this, kBitFieldOffset);
-}
-
-void Map::set_relaxed_bit_field(byte value) {
-  RELAXED_WRITE_BYTE_FIELD(*this, kBitFieldOffset, value);
+  RELEASE_WRITE_BYTE_FIELD(*this, kBitFieldOffset, value);
 }
 
 byte Map::bit_field2() const {
@@ -602,14 +602,63 @@ bool Map::IsPrimitiveMap() const {
   return instance_type() <= LAST_PRIMITIVE_HEAP_OBJECT_TYPE;
 }
 
-void Map::UpdateDescriptors(Isolate* isolate, DescriptorArray descriptors,
-                            int number_of_own_descriptors) {
-  SetInstanceDescriptors(isolate, descriptors, number_of_own_descriptors);
+LayoutDescriptor Map::layout_descriptor_gc_safe() const {
+  DCHECK(FLAG_unbox_double_fields);
+  // The loaded value can be dereferenced on background thread to load the
+  // bitmap. We need acquire load in order to ensure that the bitmap
+  // initializing stores are also visible to the background thread.
+  Object layout_desc =
+      TaggedField<Object, kLayoutDescriptorOffset>::Acquire_Load(*this);
+  return LayoutDescriptor::cast_gc_safe(layout_desc);
 }
 
-void Map::InitializeDescriptors(Isolate* isolate, DescriptorArray descriptors) {
+bool Map::HasFastPointerLayout() const {
+  DCHECK(FLAG_unbox_double_fields);
+  // The loaded value is used for SMI check only and is not dereferenced,
+  // so relaxed load is safe.
+  Object layout_desc =
+      TaggedField<Object, kLayoutDescriptorOffset>::Relaxed_Load(*this);
+  return LayoutDescriptor::IsFastPointerLayout(layout_desc);
+}
+
+void Map::UpdateDescriptors(Isolate* isolate, DescriptorArray descriptors,
+                            LayoutDescriptor layout_desc,
+                            int number_of_own_descriptors) {
+  SetInstanceDescriptors(isolate, descriptors, number_of_own_descriptors);
+  if (FLAG_unbox_double_fields) {
+    if (layout_descriptor(kAcquireLoad).IsSlowLayout()) {
+      set_layout_descriptor(layout_desc, kReleaseStore);
+    }
+#ifdef VERIFY_HEAP
+    // TODO(ishell): remove these checks from VERIFY_HEAP mode.
+    if (FLAG_verify_heap) {
+      CHECK(layout_descriptor(kAcquireLoad).IsConsistentWithMap(*this));
+      CHECK_EQ(Map::GetVisitorId(*this), visitor_id());
+    }
+#else
+    SLOW_DCHECK(layout_descriptor(kAcquireLoad).IsConsistentWithMap(*this));
+    DCHECK(visitor_id() == Map::GetVisitorId(*this));
+#endif
+  }
+}
+
+void Map::InitializeDescriptors(Isolate* isolate, DescriptorArray descriptors,
+                                LayoutDescriptor layout_desc) {
   SetInstanceDescriptors(isolate, descriptors,
                          descriptors.number_of_descriptors());
+
+  if (FLAG_unbox_double_fields) {
+    set_layout_descriptor(layout_desc, kReleaseStore);
+#ifdef VERIFY_HEAP
+    // TODO(ishell): remove these checks from VERIFY_HEAP mode.
+    if (FLAG_verify_heap) {
+      CHECK(layout_descriptor(kAcquireLoad).IsConsistentWithMap(*this));
+    }
+#else
+    SLOW_DCHECK(layout_descriptor(kAcquireLoad).IsConsistentWithMap(*this));
+#endif
+    set_visitor_id(Map::GetVisitorId(*this));
+  }
 }
 
 void Map::set_bit_field3(uint32_t bits) {
@@ -627,8 +676,13 @@ void Map::clear_padding() {
          FIELD_SIZE(kOptionalPaddingOffset));
 }
 
+LayoutDescriptor Map::GetLayoutDescriptor() const {
+  return FLAG_unbox_double_fields ? layout_descriptor(kAcquireLoad)
+                                  : LayoutDescriptor::FastPointerLayout();
+}
+
 void Map::AppendDescriptor(Isolate* isolate, Descriptor* desc) {
-  DescriptorArray descriptors = instance_descriptors(isolate);
+  DescriptorArray descriptors = instance_descriptors(kRelaxedLoad);
   int number_of_own_descriptors = NumberOfOwnDescriptors();
   DCHECK(descriptors.number_of_descriptors() == number_of_own_descriptors);
   {
@@ -657,14 +711,12 @@ void Map::AppendDescriptor(Isolate* isolate, Descriptor* desc) {
 #endif
 }
 
-bool Map::ConcurrentIsMap(IsolateRoot isolate, const Object& object) const {
-  return object.IsHeapObject() && HeapObject::cast(object).map(isolate) ==
-                                      GetReadOnlyRoots(isolate).meta_map();
-}
-
 DEF_GETTER(Map, GetBackPointer, HeapObject) {
-  Object object = constructor_or_back_pointer(isolate);
-  if (ConcurrentIsMap(isolate, object)) {
+  Object object = constructor_or_backpointer(isolate);
+  // This is the equivalent of IsMap() but avoids reading the instance type so
+  // it can be used concurrently without acquire load.
+  if (object.IsHeapObject() && HeapObject::cast(object).map(isolate) ==
+                                   GetReadOnlyRoots(isolate).meta_map()) {
     return Map::cast(object);
   }
   // Can't use ReadOnlyRoots(isolate) as this isolate could be produced by
@@ -676,8 +728,9 @@ void Map::SetBackPointer(HeapObject value, WriteBarrierMode mode) {
   CHECK_GE(instance_type(), FIRST_JS_RECEIVER_TYPE);
   CHECK(value.IsMap());
   CHECK(GetBackPointer().IsUndefined());
-  CHECK_EQ(Map::cast(value).GetConstructor(), constructor_or_back_pointer());
-  set_constructor_or_back_pointer(value, mode);
+  CHECK_IMPLIES(value.IsMap(), Map::cast(value).GetConstructor() ==
+                                   constructor_or_backpointer());
+  set_constructor_or_backpointer(value, mode);
 }
 
 // static
@@ -689,17 +742,15 @@ Map Map::ElementsTransitionMap(Isolate* isolate) {
 
 ACCESSORS(Map, dependent_code, DependentCode, kDependentCodeOffset)
 ACCESSORS(Map, prototype_validity_cell, Object, kPrototypeValidityCellOffset)
-ACCESSORS_CHECKED2(Map, constructor_or_back_pointer, Object,
+ACCESSORS_CHECKED2(Map, constructor_or_backpointer, Object,
                    kConstructorOrBackPointerOrNativeContextOffset,
                    !IsContextMap(), value.IsNull() || !IsContextMap())
 ACCESSORS_CHECKED(Map, native_context, NativeContext,
                   kConstructorOrBackPointerOrNativeContextOffset,
                   IsContextMap())
-#if V8_ENABLE_WEBASSEMBLY
 ACCESSORS_CHECKED(Map, wasm_type_info, WasmTypeInfo,
                   kConstructorOrBackPointerOrNativeContextOffset,
                   IsWasmStructMap() || IsWasmArrayMap())
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 bool Map::IsPrototypeValidityCellValid() const {
   Object validity_cell = prototype_validity_cell();
@@ -709,22 +760,22 @@ bool Map::IsPrototypeValidityCellValid() const {
 }
 
 DEF_GETTER(Map, GetConstructor, Object) {
-  Object maybe_constructor = constructor_or_back_pointer(isolate);
+  Object maybe_constructor = constructor_or_backpointer(isolate);
   // Follow any back pointers.
-  while (ConcurrentIsMap(isolate, maybe_constructor)) {
+  while (maybe_constructor.IsMap(isolate)) {
     maybe_constructor =
-        Map::cast(maybe_constructor).constructor_or_back_pointer(isolate);
+        Map::cast(maybe_constructor).constructor_or_backpointer(isolate);
   }
   return maybe_constructor;
 }
 
 Object Map::TryGetConstructor(Isolate* isolate, int max_steps) {
-  Object maybe_constructor = constructor_or_back_pointer(isolate);
+  Object maybe_constructor = constructor_or_backpointer(isolate);
   // Follow any back pointers.
   while (maybe_constructor.IsMap(isolate)) {
     if (max_steps-- == 0) return Smi::FromInt(0);
     maybe_constructor =
-        Map::cast(maybe_constructor).constructor_or_back_pointer(isolate);
+        Map::cast(maybe_constructor).constructor_or_backpointer(isolate);
   }
   return maybe_constructor;
 }
@@ -742,8 +793,8 @@ DEF_GETTER(Map, GetFunctionTemplateInfo, FunctionTemplateInfo) {
 
 void Map::SetConstructor(Object constructor, WriteBarrierMode mode) {
   // Never overwrite a back pointer with a constructor.
-  CHECK(!constructor_or_back_pointer().IsMap());
-  set_constructor_or_back_pointer(constructor, mode);
+  CHECK(!constructor_or_backpointer().IsMap());
+  set_constructor_or_backpointer(constructor, mode);
 }
 
 Handle<Map> Map::CopyInitialMap(Isolate* isolate, Handle<Map> map) {
@@ -757,7 +808,6 @@ bool Map::IsInobjectSlackTrackingInProgress() const {
 }
 
 void Map::InobjectSlackTrackingStep(Isolate* isolate) {
-  DisallowGarbageCollection no_gc;
   // Slack tracking should only be performed on an initial map.
   DCHECK(GetBackPointer().IsUndefined());
   if (!IsInobjectSlackTrackingInProgress()) return;

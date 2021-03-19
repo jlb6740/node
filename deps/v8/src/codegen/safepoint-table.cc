@@ -10,24 +10,19 @@
 #include "src/diagnostics/disasm.h"
 #include "src/execution/frames-inl.h"
 #include "src/utils/ostreams.h"
-
-#if V8_ENABLE_WEBASSEMBLY
 #include "src/wasm/wasm-code-manager.h"
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 namespace v8 {
 namespace internal {
 
-SafepointTable::SafepointTable(Isolate* isolate, Address pc, Code code)
-    : SafepointTable(code.InstructionStart(isolate, pc),
-                     code.SafepointTableAddress(), code.stack_slots(), true) {}
+SafepointTable::SafepointTable(Code code)
+    : SafepointTable(code.InstructionStart(), code.SafepointTableAddress(),
+                     code.stack_slots(), true) {}
 
-#if V8_ENABLE_WEBASSEMBLY
 SafepointTable::SafepointTable(const wasm::WasmCode* code)
     : SafepointTable(code->instruction_start(),
                      code->instruction_start() + code->safepoint_table_offset(),
                      code->stack_slots(), false) {}
-#endif  // V8_ENABLE_WEBASSEMBLY
 
 SafepointTable::SafepointTable(Address instruction_start,
                                Address safepoint_table_address,
@@ -93,11 +88,12 @@ void SafepointTable::PrintBits(std::ostream& os,  // NOLINT
   }
 }
 
-Safepoint SafepointTableBuilder::DefineSafepoint(Assembler* assembler) {
+Safepoint SafepointTableBuilder::DefineSafepoint(
+    Assembler* assembler, Safepoint::DeoptMode deopt_mode) {
   deoptimization_info_.push_back(
       DeoptimizationInfo(zone_, assembler->pc_offset_for_safepoint()));
   DeoptimizationInfo& new_info = deoptimization_info_.back();
-  return Safepoint(new_info.stack_indexes, &new_info.register_indexes);
+  return Safepoint(new_info.indexes);
 }
 
 unsigned SafepointTableBuilder::GetCodeOffset() const {
@@ -148,22 +144,14 @@ void SafepointTableBuilder::Emit(Assembler* assembler, int bits_per_entry) {
   STATIC_ASSERT(SafepointTable::kFixedEntrySize == 3 * kIntSize);
   for (const DeoptimizationInfo& info : deoptimization_info_) {
     assembler->dd(info.pc);
-    if (info.register_indexes) {
-      // We emit the register indexes in the same bits as the deopt_index.
-      // Register indexes and deopt_index should not exist at the same time.
-      DCHECK_EQ(info.deopt_index,
-                static_cast<uint32_t>(Safepoint::kNoDeoptimizationIndex));
-      assembler->dd(info.register_indexes);
-    } else {
-      assembler->dd(info.deopt_index);
-    }
+    assembler->dd(info.deopt_index);
     assembler->dd(info.trampoline);
   }
 
   // Emit table of bitmaps.
   ZoneVector<uint8_t> bits(bytes_per_entry, 0, zone_);
   for (const DeoptimizationInfo& info : deoptimization_info_) {
-    ZoneChunkList<int>* indexes = info.stack_indexes;
+    ZoneChunkList<int>* indexes = info.indexes;
     std::fill(bits.begin(), bits.end(), 0);
 
     // Run through the indexes and build a bitmap.
@@ -207,14 +195,12 @@ bool SafepointTableBuilder::IsIdenticalExceptForPc(
     const DeoptimizationInfo& info1, const DeoptimizationInfo& info2) const {
   if (info1.deopt_index != info2.deopt_index) return false;
 
-  ZoneChunkList<int>* indexes1 = info1.stack_indexes;
-  ZoneChunkList<int>* indexes2 = info2.stack_indexes;
+  ZoneChunkList<int>* indexes1 = info1.indexes;
+  ZoneChunkList<int>* indexes2 = info2.indexes;
   if (indexes1->size() != indexes2->size()) return false;
   if (!std::equal(indexes1->begin(), indexes1->end(), indexes2->begin())) {
     return false;
   }
-
-  if (info1.register_indexes != info2.register_indexes) return false;
 
   return true;
 }

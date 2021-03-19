@@ -21,6 +21,8 @@ AllocationResult ConcurrentAllocator::AllocateRaw(int object_size,
                                                   AllocationAlignment alignment,
                                                   AllocationOrigin origin) {
   // TODO(dinfuehr): Add support for allocation observers
+  CHECK(FLAG_concurrent_allocation);
+
 #ifdef DEBUG
   local_heap_->VerifyCurrent();
 #endif

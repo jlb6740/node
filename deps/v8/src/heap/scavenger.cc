@@ -18,7 +18,6 @@
 #include "src/heap/sweeper.h"
 #include "src/objects/data-handler-inl.h"
 #include "src/objects/embedder-data-array-inl.h"
-#include "src/objects/js-array-buffer-inl.h"
 #include "src/objects/objects-body-descriptors-inl.h"
 #include "src/objects/transitions-inl.h"
 #include "src/utils/utils-inl.h"
@@ -411,13 +410,7 @@ void ScavengerCollector::CollectGarbage() {
     MemoryChunk* chunk;
 
     while (empty_chunks.Pop(kMainThreadId, &chunk)) {
-      // Since sweeping was already restarted only check chunks that already got
-      // swept.
-      if (chunk->SweepingDone()) {
-        RememberedSet<OLD_TO_NEW>::CheckPossiblyEmptyBuckets(chunk);
-      } else {
-        chunk->possibly_empty_buckets()->Release();
-      }
+      RememberedSet<OLD_TO_NEW>::CheckPossiblyEmptyBuckets(chunk);
     }
 
 #ifdef DEBUG

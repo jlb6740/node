@@ -1153,12 +1153,12 @@ TEST(ScopeUsesArgumentsSuperThis) {
         CHECK_NOT_NULL(scope->AsDeclarationScope()->arguments());
       }
       if (IsClassConstructor(scope->AsDeclarationScope()->function_kind())) {
-        CHECK_IMPLIES((source_data[i].expected & SUPER_PROPERTY) != 0 ||
-                          (source_data[i].expected & EVAL) != 0,
-                      scope->GetHomeObjectScope()->needs_home_object());
+        CHECK_EQ((source_data[i].expected & SUPER_PROPERTY) != 0 ||
+                     (source_data[i].expected & EVAL) != 0,
+                 scope->AsDeclarationScope()->NeedsHomeObject());
       } else {
-        CHECK_IMPLIES((source_data[i].expected & SUPER_PROPERTY) != 0,
-                      scope->GetHomeObjectScope()->needs_home_object());
+        CHECK_EQ((source_data[i].expected & SUPER_PROPERTY) != 0,
+                 scope->AsDeclarationScope()->NeedsHomeObject());
       }
       if ((source_data[i].expected & THIS) != 0) {
         // Currently the is_used() flag is conservative; all variables in a
@@ -1619,6 +1619,7 @@ const char* ReadString(unsigned* start) {
 enum ParserFlag {
   kAllowLazy,
   kAllowNatives,
+  kAllowHarmonyLogicalAssignment,
 };
 
 enum ParserSyncTestResult {
@@ -1629,11 +1630,15 @@ enum ParserSyncTestResult {
 
 void SetGlobalFlags(base::EnumSet<ParserFlag> flags) {
   i::FLAG_allow_natives_syntax = flags.contains(kAllowNatives);
+  i::FLAG_harmony_logical_assignment =
+      flags.contains(kAllowHarmonyLogicalAssignment);
 }
 
 void SetParserFlags(i::UnoptimizedCompileFlags* compile_flags,
                     base::EnumSet<ParserFlag> flags) {
   compile_flags->set_allow_natives_syntax(flags.contains(kAllowNatives));
+  compile_flags->set_allow_harmony_logical_assignment(
+      flags.contains(kAllowHarmonyLogicalAssignment));
 }
 
 void TestParserSyncWithFlags(i::Handle<i::String> source,
@@ -4323,7 +4328,6 @@ TEST(MaybeAssignedTopLevel) {
   }
 }
 
-#if V8_ENABLE_WEBASSEMBLY
 namespace {
 
 i::Scope* DeserializeFunctionScope(i::Isolate* isolate, i::Zone* zone,
@@ -4366,6 +4370,7 @@ TEST(AsmModuleFlag) {
   CHECK(s->IsAsmModule() && s->AsDeclarationScope()->is_asm_module());
 }
 
+
 TEST(UseAsmUseCount) {
   i::Isolate* isolate = CcTest::i_isolate();
   i::HandleScope scope(isolate);
@@ -4378,7 +4383,7 @@ TEST(UseAsmUseCount) {
              "function bar() { \"use asm\"; var baz = 1; }");
   CHECK_LT(0, use_counts[v8::Isolate::kUseAsm]);
 }
-#endif  // V8_ENABLE_WEBASSEMBLY
+
 
 TEST(StrictModeUseCount) {
   i::Isolate* isolate = CcTest::i_isolate();
@@ -12396,7 +12401,9 @@ TEST(LogicalAssignmentDestructuringErrors) {
   };
   // clang-format on
 
-  RunParserSyncTest(context_data, error_data, kError);
+  static const ParserFlag flags[] = {kAllowHarmonyLogicalAssignment};
+  RunParserSyncTest(context_data, error_data, kError, nullptr, 0, flags,
+                    arraysize(flags));
 }
 
 }  // namespace test_parsing

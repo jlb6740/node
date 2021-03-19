@@ -2,12 +2,12 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "src/interpreter/bytecode-array-builder.h"
-
 #include <limits>
 
-#include "src/ast/scopes.h"
 #include "src/init/v8.h"
+
+#include "src/ast/scopes.h"
+#include "src/interpreter/bytecode-array-builder.h"
 #include "src/interpreter/bytecode-array-iterator.h"
 #include "src/interpreter/bytecode-jump-table.h"
 #include "src/interpreter/bytecode-label.h"
@@ -83,12 +83,6 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
       .BinaryOperation(Token::ADD, reg, 1)
       .StoreAccumulatorInRegister(reg)
       .LoadNull();
-
-  // The above had a lot of Star0, but we must also emit the rest of
-  // the short-star codes.
-  for (int i = 1; i < 16; ++i) {
-    builder.StoreAccumulatorInRegister(Register(i));
-  }
 
   // Emit register-register transfer.
   builder.MoveRegister(reg, other);
@@ -452,13 +446,7 @@ TEST_F(BytecodeArrayBuilderTest, AllBytecodesGenerated) {
   builder.Return();
 
   // Generate BytecodeArray.
-  Handle<ScopeInfo> scope_info =
-      factory->NewScopeInfo(ScopeInfo::kVariablePartIndex);
-  scope_info->set_flags(0);
-  scope_info->set_context_local_count(0);
-  scope_info->set_parameter_count(0);
-  scope.SetScriptScopeInfo(scope_info);
-
+  scope.SetScriptScopeInfo(factory->NewScopeInfo(1));
   ast_factory.Internalize(isolate());
   Handle<BytecodeArray> the_array = builder.ToBytecodeArray(isolate());
   CHECK_EQ(the_array->frame_size(),
@@ -705,6 +693,8 @@ TEST_F(BytecodeArrayBuilderTest, ForwardJumps) {
 
 TEST_F(BytecodeArrayBuilderTest, BackwardJumps) {
   BytecodeArrayBuilder builder(zone(), 1, 1);
+
+  Register reg(0);
 
   BytecodeLabel end;
   builder.JumpIfNull(&end);

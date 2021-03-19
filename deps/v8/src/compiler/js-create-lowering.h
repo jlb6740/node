@@ -22,7 +22,6 @@ namespace compiler {
 // Forward declarations.
 class CommonOperatorBuilder;
 class CompilationDependencies;
-class FrameState;
 class JSGraph;
 class JSOperatorBuilder;
 class MachineOperatorBuilder;
@@ -83,21 +82,17 @@ class V8_EXPORT_PRIVATE JSCreateLowering final
       const SlackTrackingPrediction& slack_tracking_prediction);
   Reduction ReduceJSCreateObject(Node* node);
 
-  // The following functions all return nullptr iff there are too many arguments
-  // for inline allocation.
-  Node* TryAllocateArguments(Node* effect, Node* control,
-                             FrameState frame_state);
-  Node* TryAllocateRestArguments(Node* effect, Node* control,
-                                 FrameState frame_state, int start_index);
-  Node* TryAllocateAliasedArguments(Node* effect, Node* control,
-                                    FrameState frame_state, Node* context,
-                                    const SharedFunctionInfoRef& shared,
-                                    bool* has_aliased_arguments);
-  Node* TryAllocateAliasedArguments(Node* effect, Node* control, Node* context,
-                                    Node* arguments_length,
-                                    const SharedFunctionInfoRef& shared,
-                                    bool* has_aliased_arguments);
-
+  Node* AllocateArguments(Node* effect, Node* control, Node* frame_state);
+  Node* AllocateRestArguments(Node* effect, Node* control, Node* frame_state,
+                              int start_index);
+  Node* AllocateAliasedArguments(Node* effect, Node* control, Node* frame_state,
+                                 Node* context,
+                                 const SharedFunctionInfoRef& shared,
+                                 bool* has_aliased_arguments);
+  Node* AllocateAliasedArguments(Node* effect, Node* control, Node* context,
+                                 Node* arguments_frame, Node* arguments_length,
+                                 const SharedFunctionInfoRef& shared,
+                                 bool* has_aliased_arguments);
   Node* AllocateElements(Node* effect, Node* control,
                          ElementsKind elements_kind, int capacity,
                          AllocationType allocation);
@@ -113,7 +108,7 @@ class V8_EXPORT_PRIVATE JSCreateLowering final
                                     JSObjectRef boilerplate,
                                     AllocationType allocation);
   Node* AllocateLiteralRegExp(Node* effect, Node* control,
-                              RegExpBoilerplateDescriptionRef boilerplate);
+                              JSRegExpRef boilerplate);
 
   Factory* factory() const;
   Graph* graph() const;

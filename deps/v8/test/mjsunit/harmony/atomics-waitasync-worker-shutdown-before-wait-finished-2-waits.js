@@ -10,18 +10,16 @@
   const location = 0;
 
   (function createWorker() {
-    function workerCode(location) {
-      onmessage = function(msg) {
-        if (msg.sab) {
-          const i32a = new Int32Array(msg.sab);
-          // Start 2 async waits in the same location.
-          const result1 = Atomics.waitAsync(i32a, location, 0);
-          const result2 = Atomics.waitAsync(i32a, location, 0);
-          postMessage('worker waiting');
-        }
+    const script = `onmessage = function(msg) {
+      if (msg.sab) {
+        const i32a = new Int32Array(msg.sab);
+        // Start 2 async waits in the same location.
+        const result1 = Atomics.waitAsync(i32a, ${location}, 0);
+        const result2 = Atomics.waitAsync(i32a, ${location}, 0);
+        postMessage('worker waiting');
       }
-    }
-    const w = new Worker(workerCode, {type: 'function', arguments: [location]});
+    }`;
+    const w = new Worker(script, {type : 'string'});
     w.postMessage({sab: sab});
     const m = w.getMessage();
     assertEquals('worker waiting', m);

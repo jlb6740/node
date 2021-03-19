@@ -145,19 +145,6 @@ class Word64Adapter {
   MachineOperatorReducer* r_;
 };
 
-namespace {
-
-// TODO(jgruber): Consider replacing all uses of this function by
-// std::numeric_limits<T>::quiet_NaN().
-template <class T>
-T SilenceNaN(T x) {
-  DCHECK(std::isnan(x));
-  // Do some calculation to make a signalling NaN quiet.
-  return x - x;
-}
-
-}  // namespace
-
 MachineOperatorReducer::MachineOperatorReducer(Editor* editor,
                                                MachineGraph* mcgraph,
                                                bool allow_signalling_nan)
@@ -478,10 +465,14 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
         return Replace(m.left().node());  // x - 0 => x
       }
       if (m.right().IsNaN()) {  // x - NaN => NaN
-        return ReplaceFloat32(SilenceNaN(m.right().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat32(m.right().ResolvedValue() -
+                              m.right().ResolvedValue());
       }
       if (m.left().IsNaN()) {  // NaN - x => NaN
-        return ReplaceFloat32(SilenceNaN(m.left().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat32(m.left().ResolvedValue() -
+                              m.left().ResolvedValue());
       }
       if (m.IsFoldable()) {  // L - R => (L - R)
         return ReplaceFloat32(m.left().ResolvedValue() -
@@ -508,12 +499,6 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     }
     case IrOpcode::kFloat64Add: {
       Float64BinopMatcher m(node);
-      if (m.right().IsNaN()) {  // x + NaN => NaN
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
-      }
-      if (m.left().IsNaN()) {  // NaN + x => NaN
-        return ReplaceFloat64(SilenceNaN(m.left().ResolvedValue()));
-      }
       if (m.IsFoldable()) {  // K + K => K  (K stands for arbitrary constants)
         return ReplaceFloat64(m.left().ResolvedValue() +
                               m.right().ResolvedValue());
@@ -527,10 +512,14 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
         return Replace(m.left().node());  // x - 0 => x
       }
       if (m.right().IsNaN()) {  // x - NaN => NaN
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat64(m.right().ResolvedValue() -
+                              m.right().ResolvedValue());
       }
       if (m.left().IsNaN()) {  // NaN - x => NaN
-        return ReplaceFloat64(SilenceNaN(m.left().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat64(m.left().ResolvedValue() -
+                              m.left().ResolvedValue());
       }
       if (m.IsFoldable()) {  // L - R => (L - R)
         return ReplaceFloat64(m.left().ResolvedValue() -
@@ -566,7 +555,9 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
         return Changed(node);
       }
       if (m.right().IsNaN()) {                               // x * NaN => NaN
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat64(m.right().ResolvedValue() -
+                              m.right().ResolvedValue());
       }
       if (m.IsFoldable()) {  // K * K => K  (K stands for arbitrary constants)
         return ReplaceFloat64(m.left().ResolvedValue() *
@@ -585,10 +576,14 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
         return Replace(m.left().node());  // x / 1.0 => x
       // TODO(ahaas): We could do x / 1.0 = x if we knew that x is not an sNaN.
       if (m.right().IsNaN()) {                               // x / NaN => NaN
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat64(m.right().ResolvedValue() -
+                              m.right().ResolvedValue());
       }
       if (m.left().IsNaN()) {  // NaN / x => NaN
-        return ReplaceFloat64(SilenceNaN(m.left().ResolvedValue()));
+        // Do some calculation to make a signalling NaN quiet.
+        return ReplaceFloat64(m.left().ResolvedValue() -
+                              m.left().ResolvedValue());
       }
       if (m.IsFoldable()) {  // K / K => K  (K stands for arbitrary constants)
         return ReplaceFloat64(
@@ -615,10 +610,10 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
         return ReplaceFloat64(std::numeric_limits<double>::quiet_NaN());
       }
       if (m.right().IsNaN()) {  // x % NaN => NaN
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
+        return Replace(m.right().node());
       }
       if (m.left().IsNaN()) {  // NaN % x => NaN
-        return ReplaceFloat64(SilenceNaN(m.left().ResolvedValue()));
+        return Replace(m.left().node());
       }
       if (m.IsFoldable()) {  // K % K => K  (K stands for arbitrary constants)
         return ReplaceFloat64(
@@ -665,10 +660,10 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     case IrOpcode::kFloat64Atan2: {
       Float64BinopMatcher m(node);
       if (m.right().IsNaN()) {
-        return ReplaceFloat64(SilenceNaN(m.right().ResolvedValue()));
+        return Replace(m.right().node());
       }
       if (m.left().IsNaN()) {
-        return ReplaceFloat64(SilenceNaN(m.left().ResolvedValue()));
+        return Replace(m.left().node());
       }
       if (m.IsFoldable()) {
         return ReplaceFloat64(base::ieee754::atan2(m.left().ResolvedValue(),
@@ -737,9 +732,20 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
                                                  m.right().ResolvedValue()));
       } else if (m.right().Is(0.0)) {  // x ** +-0.0 => 1.0
         return ReplaceFloat64(1.0);
+      } else if (m.right().Is(-2.0)) {  // x ** -2.0 => 1 / (x * x)
+        node->ReplaceInput(0, Float64Constant(1.0));
+        node->ReplaceInput(1, Float64Mul(m.left().node(), m.left().node()));
+        NodeProperties::ChangeOp(node, machine()->Float64Div());
+        return Changed(node);
       } else if (m.right().Is(2.0)) {  // x ** 2.0 => x * x
         node->ReplaceInput(1, m.left().node());
         NodeProperties::ChangeOp(node, machine()->Float64Mul());
+        return Changed(node);
+      } else if (m.right().Is(-0.5)) {
+        // x ** 0.5 => 1 / (if x <= -Infinity then Infinity else sqrt(0.0 + x))
+        node->ReplaceInput(0, Float64Constant(1.0));
+        node->ReplaceInput(1, Float64PowHalf(m.left().node()));
+        NodeProperties::ChangeOp(node, machine()->Float64Div());
         return Changed(node);
       } else if (m.right().Is(0.5)) {
         // x ** 0.5 => if x <= -Infinity then Infinity else sqrt(0.0 + x)
@@ -775,7 +781,8 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
       Float32Matcher m(node->InputAt(0));
       if (m.HasResolvedValue()) {
         if (!allow_signalling_nan_ && std::isnan(m.ResolvedValue())) {
-          return ReplaceFloat64(SilenceNaN(m.ResolvedValue()));
+          // Do some calculation to make guarantee the value is a quiet NaN.
+          return ReplaceFloat64(m.ResolvedValue() + m.ResolvedValue());
         }
         return ReplaceFloat64(m.ResolvedValue());
       }
@@ -849,8 +856,10 @@ Reduction MachineOperatorReducer::Reduce(Node* node) {
     case IrOpcode::kTruncateFloat64ToFloat32: {
       Float64Matcher m(node->InputAt(0));
       if (m.HasResolvedValue()) {
-        if (!allow_signalling_nan_ && m.IsNaN()) {
-          return ReplaceFloat32(DoubleToFloat32(SilenceNaN(m.ResolvedValue())));
+        if (!allow_signalling_nan_ && std::isnan(m.ResolvedValue())) {
+          // Do some calculation to make guarantee the value is a quiet NaN.
+          return ReplaceFloat32(
+              DoubleToFloat32(m.ResolvedValue() + m.ResolvedValue()));
         }
         return ReplaceFloat32(DoubleToFloat32(m.ResolvedValue()));
       }

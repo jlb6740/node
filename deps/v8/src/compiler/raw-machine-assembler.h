@@ -539,14 +539,6 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
   Node* Word32PairSar(Node* low_word, Node* high_word, Node* shift) {
     return AddNode(machine()->Word32PairSar(), low_word, high_word, shift);
   }
-  Node* Word32Popcnt(Node* a) {
-    return AddNode(machine()->Word32Popcnt().op(), a);
-  }
-  Node* Word64Popcnt(Node* a) {
-    return AddNode(machine()->Word64Popcnt().op(), a);
-  }
-  Node* Word32Ctz(Node* a) { return AddNode(machine()->Word32Ctz().op(), a); }
-  Node* Word64Ctz(Node* a) { return AddNode(machine()->Word64Ctz().op(), a); }
   Node* StackPointerGreaterThan(Node* value) {
     return AddNode(
         machine()->StackPointerGreaterThan(StackCheckKind::kCodeStubAssembler),
@@ -1061,7 +1053,7 @@ class V8_EXPORT_PRIVATE RawMachineAssembler {
 
   // A post-processing pass to add effect and control edges so that the graph
   // can be optimized and re-scheduled.
-  // TODO(turbofan): Move this to a separate class.
+  // TODO(tebbi): Move this to a separate class.
   void MakeReschedulable();
   Node* CreateNodeFromPredecessors(const std::vector<BasicBlock*>& predecessors,
                                    const std::vector<Node*>& sidetable,

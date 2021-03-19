@@ -11,15 +11,12 @@ function AllocMemory(pages = 1, max = pages) {
 }
 
 (function RunTest() {
-  function workerCode() {
-    onmessage =
-      function(msg) {
-        if (msg.memory) postMessage({memory : msg.memory});
-        gc();
-      }
-  }
-
-  let worker = new Worker(workerCode);
+  let worker = new Worker(
+`onmessage =
+   function(msg) {
+     if (msg.memory) postMessage({memory : msg.memory});
+     gc();
+}`, {type : 'string'});
 
   let time = performance.now();
 

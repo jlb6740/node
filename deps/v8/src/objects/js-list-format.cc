@@ -59,6 +59,7 @@ UListFormatterType GetIcuType(JSListFormat::Type type) {
 MaybeHandle<JSListFormat> JSListFormat::New(Isolate* isolate, Handle<Map> map,
                                             Handle<Object> locales,
                                             Handle<Object> input_options) {
+  Handle<JSReceiver> options;
   // 3. Let requestedLocales be ? CanonicalizeLocaleList(locales).
   Maybe<std::vector<std::string>> maybe_requested_locales =
       Intl::CanonicalizeLocaleList(isolate, locales);
@@ -66,12 +67,17 @@ MaybeHandle<JSListFormat> JSListFormat::New(Isolate* isolate, Handle<Map> map,
   std::vector<std::string> requested_locales =
       maybe_requested_locales.FromJust();
 
-  Handle<JSReceiver> options;
-  const char* service = "Intl.ListFormat";
-  // 4. Let options be GetOptionsObject(_options_).
-  ASSIGN_RETURN_ON_EXCEPTION(
-      isolate, options, Intl::GetOptionsObject(isolate, input_options, service),
-      JSListFormat);
+  // 4. If options is undefined, then
+  if (input_options->IsUndefined(isolate)) {
+    // 4. a. Let options be ObjectCreate(null).
+    options = isolate->factory()->NewJSObjectWithNullProto();
+    // 5. Else
+  } else {
+    // 5. a. Let options be ? ToObject(options).
+    ASSIGN_RETURN_ON_EXCEPTION(isolate, options,
+                               Object::ToObject(isolate, input_options),
+                               JSListFormat);
+  }
 
   // Note: No need to create a record. It's not observable.
   // 6. Let opt be a new Record.
@@ -79,7 +85,7 @@ MaybeHandle<JSListFormat> JSListFormat::New(Isolate* isolate, Handle<Map> map,
   // 7. Let matcher be ? GetOption(options, "localeMatcher", "string", «
   // "lookup", "best fit" », "best fit").
   Maybe<Intl::MatcherOption> maybe_locale_matcher =
-      Intl::GetLocaleMatcher(isolate, options, service);
+      Intl::GetLocaleMatcher(isolate, options, "Intl.ListFormat");
   MAYBE_RETURN(maybe_locale_matcher, MaybeHandle<JSListFormat>());
 
   // 8. Set opt.[[localeMatcher]] to matcher.
@@ -101,7 +107,8 @@ MaybeHandle<JSListFormat> JSListFormat::New(Isolate* isolate, Handle<Map> map,
   // 12. Let t be GetOption(options, "type", "string", «"conjunction",
   //    "disjunction", "unit"», "conjunction").
   Maybe<Type> maybe_type = Intl::GetStringOption<Type>(
-      isolate, options, "type", service, {"conjunction", "disjunction", "unit"},
+      isolate, options, "type", "Intl.ListFormat",
+      {"conjunction", "disjunction", "unit"},
       {Type::CONJUNCTION, Type::DISJUNCTION, Type::UNIT}, Type::CONJUNCTION);
   MAYBE_RETURN(maybe_type, MaybeHandle<JSListFormat>());
   Type type_enum = maybe_type.FromJust();
@@ -109,7 +116,7 @@ MaybeHandle<JSListFormat> JSListFormat::New(Isolate* isolate, Handle<Map> map,
   // 14. Let s be ? GetOption(options, "style", "string",
   //                          «"long", "short", "narrow"», "long").
   Maybe<Style> maybe_style = Intl::GetStringOption<Style>(
-      isolate, options, "style", service, {"long", "short", "narrow"},
+      isolate, options, "style", "Intl.ListFormat", {"long", "short", "narrow"},
       {Style::LONG, Style::SHORT, Style::NARROW}, Style::LONG);
   MAYBE_RETURN(maybe_style, MaybeHandle<JSListFormat>());
   Style style_enum = maybe_style.FromJust();

@@ -9,16 +9,14 @@
   const i32a = new Int32Array(sab);
 
   (function createWorker() {
-    function workerCode() {
-      onmessage = function(msg) {
-        if (msg.sab) {
-          const i32a = new Int32Array(msg.sab);
-          const result = Atomics.waitAsync(i32a, 0, 0);
-          postMessage('worker waiting');
-        }
+    const script = `onmessage = function(msg) {
+    if (msg.sab) {
+        const i32a = new Int32Array(msg.sab);
+        const result = Atomics.waitAsync(i32a, 0, 0);
+        postMessage('worker waiting');
       }
-    };
-    const w = new Worker(workerCode, {type: 'function'});
+    }`;
+    const w = new Worker(script, {type : 'string'});
     w.postMessage({sab: sab});
     const m = w.getMessage();
     assertEquals('worker waiting', m);

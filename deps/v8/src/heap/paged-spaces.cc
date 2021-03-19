@@ -320,17 +320,14 @@ Page* PagedSpace::Expand() {
   return page;
 }
 
-base::Optional<std::pair<Address, size_t>> PagedSpace::ExpandBackground(
-    LocalHeap* local_heap, size_t size_in_bytes) {
+Page* PagedSpace::ExpandBackground(LocalHeap* local_heap) {
   Page* page = AllocatePage();
-  if (page == nullptr) return {};
+  if (page == nullptr) return nullptr;
   base::MutexGuard lock(&space_mutex_);
   AddPage(page);
-  Address object_start = page->area_start();
-  CHECK_LE(size_in_bytes, page->area_size());
-  Free(page->area_start() + size_in_bytes, page->area_size() - size_in_bytes,
+  Free(page->area_start(), page->area_size(),
        SpaceAccountingMode::kSpaceAccounted);
-  return std::make_pair(object_start, size_in_bytes);
+  return page;
 }
 
 int PagedSpace::CountTotalPages() {
@@ -592,12 +589,13 @@ base::Optional<std::pair<Address, size_t>> PagedSpace::RawRefillLabBackground(
   }
 
   if (heap()->ShouldExpandOldGenerationOnSlowAllocation(local_heap) &&
-      heap()->CanExpandOldGenerationBackground(AreaSize())) {
-    auto result = ExpandBackground(local_heap, max_size_in_bytes);
-    if (result) {
-      DCHECK_EQ(Heap::GetFillToAlign(result->first, alignment), 0);
-      return result;
-    }
+      heap()->CanExpandOldGenerationBackground(AreaSize()) &&
+      ExpandBackground(local_heap)) {
+    DCHECK((CountTotalPages() > 1) ||
+           (min_size_in_bytes <= free_list_->Available()));
+    auto result = TryAllocationFromFreeListBackground(
+        local_heap, min_size_in_bytes, max_size_in_bytes, alignment, origin);
+    if (result) return result;
   }
 
   if (collector->sweeping_in_progress()) {

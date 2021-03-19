@@ -67,10 +67,8 @@ class PropertyAccessInfo final {
     kInvalid,
     kNotFound,
     kDataField,
-    kFastDataConstant,
-    kDictionaryProtoDataConstant,
-    kFastAccessorConstant,
-    kDictionaryProtoAccessorConstant,
+    kDataConstant,
+    kAccessorConstant,
     kModuleExport,
     kStringLength
   };
@@ -85,27 +83,21 @@ class PropertyAccessInfo final {
       MaybeHandle<Map> field_map = MaybeHandle<Map>(),
       MaybeHandle<JSObject> holder = MaybeHandle<JSObject>(),
       MaybeHandle<Map> transition_map = MaybeHandle<Map>());
-  static PropertyAccessInfo FastDataConstant(
+  static PropertyAccessInfo DataConstant(
       Zone* zone, Handle<Map> receiver_map,
       ZoneVector<CompilationDependency const*>&& unrecorded_dependencies,
       FieldIndex field_index, Representation field_representation,
       Type field_type, Handle<Map> field_owner_map, MaybeHandle<Map> field_map,
       MaybeHandle<JSObject> holder,
       MaybeHandle<Map> transition_map = MaybeHandle<Map>());
-  static PropertyAccessInfo FastAccessorConstant(Zone* zone,
-                                                 Handle<Map> receiver_map,
-                                                 Handle<Object> constant,
-                                                 MaybeHandle<JSObject> holder);
+  static PropertyAccessInfo AccessorConstant(Zone* zone,
+                                             Handle<Map> receiver_map,
+                                             Handle<Object> constant,
+                                             MaybeHandle<JSObject> holder);
   static PropertyAccessInfo ModuleExport(Zone* zone, Handle<Map> receiver_map,
                                          Handle<Cell> cell);
   static PropertyAccessInfo StringLength(Zone* zone, Handle<Map> receiver_map);
   static PropertyAccessInfo Invalid(Zone* zone);
-  static PropertyAccessInfo DictionaryProtoDataConstant(
-      Zone* zone, Handle<Map> receiver_map, Handle<JSObject> holder,
-      InternalIndex dict_index);
-  static PropertyAccessInfo DictionaryProtoAccessorConstant(
-      Zone* zone, Handle<Map> receiver_map, MaybeHandle<JSObject> holder,
-      Handle<Object> constant);
 
   bool Merge(PropertyAccessInfo const* that, AccessMode access_mode,
              Zone* zone) V8_WARN_UNUSED_RESULT;
@@ -115,24 +107,12 @@ class PropertyAccessInfo final {
   bool IsInvalid() const { return kind() == kInvalid; }
   bool IsNotFound() const { return kind() == kNotFound; }
   bool IsDataField() const { return kind() == kDataField; }
-  bool IsFastDataConstant() const { return kind() == kFastDataConstant; }
-  bool IsFastAccessorConstant() const {
-    return kind() == kFastAccessorConstant;
-  }
+  bool IsDataConstant() const { return kind() == kDataConstant; }
+  bool IsAccessorConstant() const { return kind() == kAccessorConstant; }
   bool IsModuleExport() const { return kind() == kModuleExport; }
   bool IsStringLength() const { return kind() == kStringLength; }
-  bool IsDictionaryProtoDataConstant() const {
-    return kind() == kDictionaryProtoDataConstant;
-  }
-  bool IsDictionaryProtoAccessorConstant() const {
-    return kind() == kDictionaryProtoAccessorConstant;
-  }
 
   bool HasTransitionMap() const { return !transition_map().is_null(); }
-  bool HasDictionaryHolder() const {
-    return kind_ == kDictionaryProtoDataConstant ||
-           kind_ == kDictionaryProtoAccessorConstant;
-  }
   ConstFieldInfo GetConstFieldInfo() const;
 
   Kind kind() const { return kind_; }
@@ -142,35 +122,14 @@ class PropertyAccessInfo final {
     // Find a more suitable place for it.
     return holder_;
   }
-  MaybeHandle<Map> transition_map() const {
-    DCHECK(!HasDictionaryHolder());
-    return transition_map_;
-  }
+  MaybeHandle<Map> transition_map() const { return transition_map_; }
   Handle<Object> constant() const { return constant_; }
-  FieldIndex field_index() const {
-    DCHECK(!HasDictionaryHolder());
-    return field_index_;
-  }
-
-  Type field_type() const {
-    DCHECK(!HasDictionaryHolder());
-    return field_type_;
-  }
-  Representation field_representation() const {
-    DCHECK(!HasDictionaryHolder());
-    return field_representation_;
-  }
-  MaybeHandle<Map> field_map() const {
-    DCHECK(!HasDictionaryHolder());
-    return field_map_;
-  }
+  FieldIndex field_index() const { return field_index_; }
+  Type field_type() const { return field_type_; }
+  Representation field_representation() const { return field_representation_; }
+  MaybeHandle<Map> field_map() const { return field_map_; }
   ZoneVector<Handle<Map>> const& lookup_start_object_maps() const {
     return lookup_start_object_maps_;
-  }
-
-  InternalIndex dictionary_index() const {
-    DCHECK(HasDictionaryHolder());
-    return dictionary_index_;
   }
 
  private:
@@ -186,27 +145,18 @@ class PropertyAccessInfo final {
                      Handle<Map> field_owner_map, MaybeHandle<Map> field_map,
                      ZoneVector<Handle<Map>>&& lookup_start_object_maps,
                      ZoneVector<CompilationDependency const*>&& dependencies);
-  PropertyAccessInfo(Zone* zone, Kind kind, MaybeHandle<JSObject> holder,
-                     ZoneVector<Handle<Map>>&& lookup_start_object_maps,
-                     InternalIndex dictionary_index);
 
-  // Members used for fast and dictionary mode holders:
   Kind kind_;
   ZoneVector<Handle<Map>> lookup_start_object_maps_;
-  Handle<Object> constant_;
-  MaybeHandle<JSObject> holder_;
-
-  // Members only used for fast mode holders:
   ZoneVector<CompilationDependency const*> unrecorded_dependencies_;
+  Handle<Object> constant_;
   MaybeHandle<Map> transition_map_;
+  MaybeHandle<JSObject> holder_;
   FieldIndex field_index_;
   Representation field_representation_;
   Type field_type_;
   MaybeHandle<Map> field_owner_map_;
   MaybeHandle<Map> field_map_;
-
-  // Members only used for dictionary mode holders:
-  InternalIndex dictionary_index_;
 };
 
 // This class encapsulates information required to generate load properties

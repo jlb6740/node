@@ -53,9 +53,7 @@ class V8_EXPORT_PRIVATE LocalIsolate final : private HiddenLocalFactory {
   inline Object root(RootIndex index) const;
 
   StringTable* string_table() const { return isolate_->string_table(); }
-  base::SharedMutex* internalized_string_access() {
-    return isolate_->internalized_string_access();
-  }
+  base::SharedMutex* string_access() { return isolate_->string_access(); }
 
   v8::internal::LocalFactory* factory() {
     // Upcast to the privately inherited base-class using c-style casts to avoid
@@ -87,7 +85,9 @@ class V8_EXPORT_PRIVATE LocalIsolate final : private HiddenLocalFactory {
 
   bool is_main_thread() const { return heap_.is_main_thread(); }
 
-  LocalIsolate* AsLocalIsolate() { return this; }
+  const std::vector<std::string>& supported_import_assertions() const {
+    return supported_import_assertions_;
+  }
 
  private:
   friend class v8::internal::LocalFactory;
@@ -101,6 +101,7 @@ class V8_EXPORT_PRIVATE LocalIsolate final : private HiddenLocalFactory {
   std::unique_ptr<LocalLogger> logger_;
   ThreadId const thread_id_;
   Address const stack_limit_;
+  std::vector<std::string> supported_import_assertions_;
 };
 
 template <base::MutexSharedType kIsShared>
@@ -109,7 +110,8 @@ class V8_NODISCARD SharedMutexGuardIfOffThread<LocalIsolate, kIsShared> final {
   SharedMutexGuardIfOffThread(base::SharedMutex* mutex, LocalIsolate* isolate) {
     DCHECK_NOT_NULL(mutex);
     DCHECK_NOT_NULL(isolate);
-    if (!isolate->is_main_thread()) mutex_guard_.emplace(mutex);
+    DCHECK(!isolate->is_main_thread());
+    mutex_guard_.emplace(mutex);
   }
 
   SharedMutexGuardIfOffThread(const SharedMutexGuardIfOffThread&) = delete;

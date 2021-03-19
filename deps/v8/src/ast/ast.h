@@ -54,22 +54,21 @@ namespace internal {
   V(Block)                     \
   V(SwitchStatement)
 
-#define STATEMENT_NODE_LIST(V)       \
-  ITERATION_NODE_LIST(V)             \
-  BREAKABLE_NODE_LIST(V)             \
-  V(ExpressionStatement)             \
-  V(EmptyStatement)                  \
-  V(SloppyBlockFunctionStatement)    \
-  V(IfStatement)                     \
-  V(ContinueStatement)               \
-  V(BreakStatement)                  \
-  V(ReturnStatement)                 \
-  V(WithStatement)                   \
-  V(TryCatchStatement)               \
-  V(TryFinallyStatement)             \
-  V(DebuggerStatement)               \
-  V(InitializeClassMembersStatement) \
-  V(InitializeClassStaticElementsStatement)
+#define STATEMENT_NODE_LIST(V)    \
+  ITERATION_NODE_LIST(V)          \
+  BREAKABLE_NODE_LIST(V)          \
+  V(ExpressionStatement)          \
+  V(EmptyStatement)               \
+  V(SloppyBlockFunctionStatement) \
+  V(IfStatement)                  \
+  V(ContinueStatement)            \
+  V(BreakStatement)               \
+  V(ReturnStatement)              \
+  V(WithStatement)                \
+  V(TryCatchStatement)            \
+  V(TryFinallyStatement)          \
+  V(DebuggerStatement)            \
+  V(InitializeClassMembersStatement)
 
 #define LITERAL_NODE_LIST(V) \
   V(RegExpLiteral)           \
@@ -920,6 +919,7 @@ class Literal final : public Expression {
     kHeapNumber,
     kBigInt,
     kString,
+    kSymbol,
     kBoolean,
     kUndefined,
     kNull,
@@ -974,6 +974,11 @@ class Literal final : public Expression {
     return string_;
   }
 
+  AstSymbol AsSymbol() {
+    DCHECK_EQ(type(), kSymbol);
+    return symbol_;
+  }
+
   V8_EXPORT_PRIVATE bool ToBooleanIsTrue() const;
   bool ToBooleanIsFalse() const { return !ToBooleanIsTrue(); }
 
@@ -1014,6 +1019,11 @@ class Literal final : public Expression {
     bit_field_ = TypeField::update(bit_field_, kString);
   }
 
+  Literal(AstSymbol symbol, int position)
+      : Expression(position, kLiteral), symbol_(symbol) {
+    bit_field_ = TypeField::update(bit_field_, kSymbol);
+  }
+
   Literal(bool boolean, int position)
       : Expression(position, kLiteral), boolean_(boolean) {
     bit_field_ = TypeField::update(bit_field_, kBoolean);
@@ -1028,6 +1038,7 @@ class Literal final : public Expression {
     const AstRawString* string_;
     int smi_;
     double number_;
+    AstSymbol symbol_;
     AstBigInt bigint_;
     bool boolean_;
   };
@@ -1296,8 +1307,6 @@ class ObjectLiteral final : public AggregateLiteral {
     return flags;
   }
 
-  Variable* home_object() const { return home_object_; }
-
   enum Flags {
     kFastElements = 1 << 3,
     kHasNullPrototype = 1 << 4,
@@ -1312,11 +1321,10 @@ class ObjectLiteral final : public AggregateLiteral {
 
   ObjectLiteral(Zone* zone, const ScopedPtrList<Property>& properties,
                 uint32_t boilerplate_properties, int pos,
-                bool has_rest_property, Variable* home_object)
+                bool has_rest_property)
       : AggregateLiteral(pos, kObjectLiteral),
         boilerplate_properties_(boilerplate_properties),
-        properties_(properties.ToConstVector(), zone),
-        home_object_(home_object) {
+        properties_(properties.ToConstVector(), zone) {
     bit_field_ |= HasElementsField::encode(false) |
                   HasRestPropertyField::encode(has_rest_property) |
                   FastElementsField::encode(false) |
@@ -1337,7 +1345,6 @@ class ObjectLiteral final : public AggregateLiteral {
   uint32_t boilerplate_properties_;
   Handle<ObjectBoilerplateDescription> boilerplate_description_;
   ZoneList<Property*> properties_;
-  Variable* home_object_;
 
   using HasElementsField = AggregateLiteral::NextBitField<bool, 1>;
   using HasRestPropertyField = HasElementsField::Next<bool, 1>;
@@ -1618,44 +1625,11 @@ class Property final : public Expression {
   Expression* key_;
 };
 
-class CallBase : public Expression {
+class Call final : public Expression {
  public:
   Expression* expression() const { return expression_; }
   const ZonePtrList<Expression>* arguments() const { return &arguments_; }
 
-  enum SpreadPosition { kNoSpread, kHasFinalSpread, kHasNonFinalSpread };
-  SpreadPosition spread_position() const {
-    return SpreadPositionField::decode(bit_field_);
-  }
-
- protected:
-  CallBase(Zone* zone, NodeType type, Expression* expression,
-           const ScopedPtrList<Expression>& arguments, int pos, bool has_spread)
-      : Expression(pos, type),
-        expression_(expression),
-        arguments_(arguments.ToConstVector(), zone) {
-    DCHECK(type == kCall || type == kCallNew);
-    if (has_spread) {
-      ComputeSpreadPosition();
-    } else {
-      bit_field_ |= SpreadPositionField::encode(kNoSpread);
-    }
-  }
-
-  // Only valid to be called if there is a spread in arguments_.
-  void ComputeSpreadPosition();
-
-  using SpreadPositionField = Expression::NextBitField<SpreadPosition, 2>;
-
-  template <class T, int size>
-  using NextBitField = SpreadPositionField::Next<T, size>;
-
-  Expression* expression_;
-  ZonePtrList<Expression> arguments_;
-};
-
-class Call final : public CallBase {
- public:
   bool is_possibly_eval() const {
     return IsPossiblyEvalField::decode(bit_field_);
   }
@@ -1666,6 +1640,10 @@ class Call final : public CallBase {
 
   bool is_optional_chain_link() const {
     return IsOptionalChainLinkField::decode(bit_field_);
+  }
+
+  bool only_last_arg_is_spread() {
+    return !arguments_.is_empty() && arguments_.last()->IsSpread();
   }
 
   enum CallType {
@@ -1698,9 +1676,11 @@ class Call final : public CallBase {
   friend Zone;
 
   Call(Zone* zone, Expression* expression,
-       const ScopedPtrList<Expression>& arguments, int pos, bool has_spread,
+       const ScopedPtrList<Expression>& arguments, int pos,
        PossiblyEval possibly_eval, bool optional_chain)
-      : CallBase(zone, kCall, expression, arguments, pos, has_spread) {
+      : Expression(pos, kCall),
+        expression_(expression),
+        arguments_(arguments.ToConstVector(), zone) {
     bit_field_ |=
         IsPossiblyEvalField::encode(possibly_eval == IS_POSSIBLY_EVAL) |
         IsTaggedTemplateField::encode(false) |
@@ -1710,25 +1690,44 @@ class Call final : public CallBase {
   Call(Zone* zone, Expression* expression,
        const ScopedPtrList<Expression>& arguments, int pos,
        TaggedTemplateTag tag)
-      : CallBase(zone, kCall, expression, arguments, pos, false) {
+      : Expression(pos, kCall),
+        expression_(expression),
+        arguments_(arguments.ToConstVector(), zone) {
     bit_field_ |= IsPossiblyEvalField::encode(false) |
                   IsTaggedTemplateField::encode(true) |
                   IsOptionalChainLinkField::encode(false);
   }
 
-  using IsPossiblyEvalField = CallBase::NextBitField<bool, 1>;
+  using IsPossiblyEvalField = Expression::NextBitField<bool, 1>;
   using IsTaggedTemplateField = IsPossiblyEvalField::Next<bool, 1>;
   using IsOptionalChainLinkField = IsTaggedTemplateField::Next<bool, 1>;
+
+  Expression* expression_;
+  ZonePtrList<Expression> arguments_;
 };
 
-class CallNew final : public CallBase {
+
+class CallNew final : public Expression {
+ public:
+  Expression* expression() const { return expression_; }
+  const ZonePtrList<Expression>* arguments() const { return &arguments_; }
+
+  bool only_last_arg_is_spread() {
+    return !arguments_.is_empty() && arguments_.last()->IsSpread();
+  }
+
  private:
   friend class AstNodeFactory;
   friend Zone;
 
   CallNew(Zone* zone, Expression* expression,
-          const ScopedPtrList<Expression>& arguments, int pos, bool has_spread)
-      : CallBase(zone, kCallNew, expression, arguments, pos, has_spread) {}
+          const ScopedPtrList<Expression>& arguments, int pos)
+      : Expression(pos, kCallNew),
+        expression_(expression),
+        arguments_(arguments.ToConstVector(), zone) {}
+
+  Expression* expression_;
+  ZonePtrList<Expression> arguments_;
 };
 
 // The CallRuntime class does not represent any official JavaScript
@@ -2142,6 +2141,8 @@ class FunctionLiteral final : public Expression {
   }
   V8_EXPORT_PRIVATE LanguageMode language_mode() const;
 
+  static bool NeedsHomeObject(Expression* expr);
+
   void add_expected_properties(int number_properties) {
     expected_property_count_ += number_properties;
   }
@@ -2362,6 +2363,11 @@ class ClassLiteralProperty final : public LiteralProperty {
     return private_or_computed_name_var_;
   }
 
+  bool NeedsHomeObjectOnClassPrototype() const {
+    return is_private() && kind_ == METHOD &&
+           FunctionLiteral::NeedsHomeObject(value_);
+  }
+
  private:
   friend class AstNodeFactory;
   friend Zone;
@@ -2373,40 +2379,6 @@ class ClassLiteralProperty final : public LiteralProperty {
   bool is_static_;
   bool is_private_;
   Variable* private_or_computed_name_var_;
-};
-
-class ClassLiteralStaticElement final : public ZoneObject {
- public:
-  enum Kind : uint8_t { PROPERTY, STATIC_BLOCK };
-
-  Kind kind() const { return kind_; }
-
-  ClassLiteralProperty* property() const {
-    DCHECK(kind() == PROPERTY);
-    return property_;
-  }
-
-  Block* static_block() const {
-    DCHECK(kind() == STATIC_BLOCK);
-    return static_block_;
-  }
-
- private:
-  friend class AstNodeFactory;
-  friend Zone;
-
-  explicit ClassLiteralStaticElement(ClassLiteralProperty* property)
-      : kind_(PROPERTY), property_(property) {}
-
-  explicit ClassLiteralStaticElement(Block* static_block)
-      : kind_(STATIC_BLOCK), static_block_(static_block) {}
-
-  Kind kind_;
-
-  union {
-    ClassLiteralProperty* property_;
-    Block* static_block_;
-  };
 };
 
 class InitializeClassMembersStatement final : public Statement {
@@ -2425,28 +2397,9 @@ class InitializeClassMembersStatement final : public Statement {
   ZonePtrList<Property>* fields_;
 };
 
-class InitializeClassStaticElementsStatement final : public Statement {
- public:
-  using StaticElement = ClassLiteralStaticElement;
-
-  ZonePtrList<StaticElement>* elements() const { return elements_; }
-
- private:
-  friend class AstNodeFactory;
-  friend Zone;
-
-  InitializeClassStaticElementsStatement(ZonePtrList<StaticElement>* elements,
-                                         int pos)
-      : Statement(pos, kInitializeClassStaticElementsStatement),
-        elements_(elements) {}
-
-  ZonePtrList<StaticElement>* elements_;
-};
-
 class ClassLiteral final : public Expression {
  public:
   using Property = ClassLiteralProperty;
-  using StaticElement = ClassLiteralStaticElement;
 
   ClassScope* scope() const { return scope_; }
   Expression* extends() const { return extends_; }
@@ -2472,15 +2425,13 @@ class ClassLiteral final : public Expression {
     return is_anonymous_expression();
   }
 
-  FunctionLiteral* static_initializer() const { return static_initializer_; }
+  FunctionLiteral* static_fields_initializer() const {
+    return static_fields_initializer_;
+  }
 
   FunctionLiteral* instance_members_initializer_function() const {
     return instance_members_initializer_function_;
   }
-
-  Variable* home_object() const { return home_object_; }
-
-  Variable* static_home_object() const { return static_home_object_; }
 
  private:
   friend class AstNodeFactory;
@@ -2490,12 +2441,11 @@ class ClassLiteral final : public Expression {
                FunctionLiteral* constructor,
                ZonePtrList<Property>* public_members,
                ZonePtrList<Property>* private_members,
-               FunctionLiteral* static_initializer,
+               FunctionLiteral* static_fields_initializer,
                FunctionLiteral* instance_members_initializer_function,
                int start_position, int end_position,
                bool has_name_static_property, bool has_static_computed_names,
-               bool is_anonymous, bool has_private_methods,
-               Variable* home_object, Variable* static_home_object)
+               bool is_anonymous, bool has_private_methods)
       : Expression(start_position, kClassLiteral),
         end_position_(end_position),
         scope_(scope),
@@ -2503,11 +2453,9 @@ class ClassLiteral final : public Expression {
         constructor_(constructor),
         public_members_(public_members),
         private_members_(private_members),
-        static_initializer_(static_initializer),
+        static_fields_initializer_(static_fields_initializer),
         instance_members_initializer_function_(
-            instance_members_initializer_function),
-        home_object_(home_object),
-        static_home_object_(static_home_object) {
+            instance_members_initializer_function) {
     bit_field_ |= HasNameStaticProperty::encode(has_name_static_property) |
                   HasStaticComputedNames::encode(has_static_computed_names) |
                   IsAnonymousExpression::encode(is_anonymous) |
@@ -2520,14 +2468,12 @@ class ClassLiteral final : public Expression {
   FunctionLiteral* constructor_;
   ZonePtrList<Property>* public_members_;
   ZonePtrList<Property>* private_members_;
-  FunctionLiteral* static_initializer_;
+  FunctionLiteral* static_fields_initializer_;
   FunctionLiteral* instance_members_initializer_function_;
   using HasNameStaticProperty = Expression::NextBitField<bool, 1>;
   using HasStaticComputedNames = HasNameStaticProperty::Next<bool, 1>;
   using IsAnonymousExpression = HasStaticComputedNames::Next<bool, 1>;
   using HasPrivateMethods = IsAnonymousExpression::Next<bool, 1>;
-  Variable* home_object_;
-  Variable* static_home_object_;
 };
 
 
@@ -2554,16 +2500,19 @@ class NativeFunctionLiteral final : public Expression {
 
 class SuperPropertyReference final : public Expression {
  public:
-  VariableProxy* home_object() const { return home_object_; }
+  Expression* home_object() const { return home_object_; }
 
  private:
   friend class AstNodeFactory;
   friend Zone;
 
-  explicit SuperPropertyReference(VariableProxy* home_object, int pos)
-      : Expression(pos, kSuperPropertyReference), home_object_(home_object) {}
+  // We take in ThisExpression* only as a proof that it was accessed.
+  SuperPropertyReference(Expression* home_object, int pos)
+      : Expression(pos, kSuperPropertyReference), home_object_(home_object) {
+    DCHECK(home_object->IsProperty());
+  }
 
-  VariableProxy* home_object_;
+  Expression* home_object_;
 };
 
 
@@ -2977,6 +2926,11 @@ class AstNodeFactory final {
     return zone_->New<Literal>(string, pos);
   }
 
+  // A JavaScript symbol (ECMA-262 edition 6).
+  Literal* NewSymbolLiteral(AstSymbol symbol, int pos) {
+    return zone_->New<Literal>(symbol, pos);
+  }
+
   Literal* NewNumberLiteral(double number, int pos);
 
   Literal* NewSmiLiteral(int number, int pos) {
@@ -3005,10 +2959,9 @@ class AstNodeFactory final {
 
   ObjectLiteral* NewObjectLiteral(
       const ScopedPtrList<ObjectLiteral::Property>& properties,
-      uint32_t boilerplate_properties, int pos, bool has_rest_property,
-      Variable* home_object = nullptr) {
+      uint32_t boilerplate_properties, int pos, bool has_rest_property) {
     return zone_->New<ObjectLiteral>(zone_, properties, boilerplate_properties,
-                                     pos, has_rest_property, home_object);
+                                     pos, has_rest_property);
   }
 
   ObjectLiteral::Property* NewObjectLiteralProperty(
@@ -3072,12 +3025,11 @@ class AstNodeFactory final {
 
   Call* NewCall(Expression* expression,
                 const ScopedPtrList<Expression>& arguments, int pos,
-                bool has_spread,
                 Call::PossiblyEval possibly_eval = Call::NOT_EVAL,
                 bool optional_chain = false) {
     DCHECK_IMPLIES(possibly_eval == Call::IS_POSSIBLY_EVAL, !optional_chain);
-    return zone_->New<Call>(zone_, expression, arguments, pos, has_spread,
-                            possibly_eval, optional_chain);
+    return zone_->New<Call>(zone_, expression, arguments, pos, possibly_eval,
+                            optional_chain);
   }
 
   Call* NewTaggedTemplate(Expression* expression,
@@ -3087,9 +3039,8 @@ class AstNodeFactory final {
   }
 
   CallNew* NewCallNew(Expression* expression,
-                      const ScopedPtrList<Expression>& arguments, int pos,
-                      bool has_spread) {
-    return zone_->New<CallNew>(zone_, expression, arguments, pos, has_spread);
+                      const ScopedPtrList<Expression>& arguments, int pos) {
+    return zone_->New<CallNew>(zone_, expression, arguments, pos);
   }
 
   CallRuntime* NewCallRuntime(Runtime::FunctionId id,
@@ -3236,32 +3187,20 @@ class AstNodeFactory final {
                                               is_computed_name, is_private);
   }
 
-  ClassLiteral::StaticElement* NewClassLiteralStaticElement(
-      ClassLiteral::Property* property) {
-    return zone_->New<ClassLiteral::StaticElement>(property);
-  }
-
-  ClassLiteral::StaticElement* NewClassLiteralStaticElement(
-      Block* static_block) {
-    return zone_->New<ClassLiteral::StaticElement>(static_block);
-  }
-
   ClassLiteral* NewClassLiteral(
       ClassScope* scope, Expression* extends, FunctionLiteral* constructor,
       ZonePtrList<ClassLiteral::Property>* public_members,
       ZonePtrList<ClassLiteral::Property>* private_members,
-      FunctionLiteral* static_initializer,
+      FunctionLiteral* static_fields_initializer,
       FunctionLiteral* instance_members_initializer_function,
       int start_position, int end_position, bool has_name_static_property,
       bool has_static_computed_names, bool is_anonymous,
-      bool has_private_methods, Variable* home_object,
-      Variable* static_home_object) {
+      bool has_private_methods) {
     return zone_->New<ClassLiteral>(
         scope, extends, constructor, public_members, private_members,
-        static_initializer, instance_members_initializer_function,
+        static_fields_initializer, instance_members_initializer_function,
         start_position, end_position, has_name_static_property,
-        has_static_computed_names, is_anonymous, has_private_methods,
-        home_object, static_home_object);
+        has_static_computed_names, is_anonymous, has_private_methods);
   }
 
   NativeFunctionLiteral* NewNativeFunctionLiteral(const AstRawString* name,
@@ -3270,9 +3209,9 @@ class AstNodeFactory final {
     return zone_->New<NativeFunctionLiteral>(name, extension, pos);
   }
 
-  SuperPropertyReference* NewSuperPropertyReference(
-      VariableProxy* home_object_var, int pos) {
-    return zone_->New<SuperPropertyReference>(home_object_var, pos);
+  SuperPropertyReference* NewSuperPropertyReference(Expression* home_object,
+                                                    int pos) {
+    return zone_->New<SuperPropertyReference>(home_object, pos);
   }
 
   SuperCallReference* NewSuperCallReference(VariableProxy* new_target_var,
@@ -3312,12 +3251,6 @@ class AstNodeFactory final {
   InitializeClassMembersStatement* NewInitializeClassMembersStatement(
       ZonePtrList<ClassLiteral::Property>* args, int pos) {
     return zone_->New<InitializeClassMembersStatement>(args, pos);
-  }
-
-  InitializeClassStaticElementsStatement*
-  NewInitializeClassStaticElementsStatement(
-      ZonePtrList<ClassLiteral::StaticElement>* args, int pos) {
-    return zone_->New<InitializeClassStaticElementsStatement>(args, pos);
   }
 
   Zone* zone() const { return zone_; }

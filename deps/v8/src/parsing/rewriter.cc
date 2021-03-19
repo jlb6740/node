@@ -360,11 +360,6 @@ void Processor::VisitInitializeClassMembersStatement(
   replacement_ = node;
 }
 
-void Processor::VisitInitializeClassStaticElementsStatement(
-    InitializeClassStaticElementsStatement* node) {
-  replacement_ = node;
-}
-
 // Expressions are never visited.
 #define DEF_VISIT(type)                                         \
   void Processor::Visit##type(type* expr) { UNREACHABLE(); }

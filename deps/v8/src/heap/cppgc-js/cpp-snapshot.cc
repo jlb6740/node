@@ -35,19 +35,11 @@ using cppgc::internal::HeapObjectHeader;
 class EmbedderNode : public v8::EmbedderGraph::Node {
  public:
   explicit EmbedderNode(const char* name, size_t size)
-      : name_(name), size_(size) {
-    USE(size_);
-  }
+      : name_(name), size_(size) {}
   ~EmbedderNode() override = default;
 
   const char* Name() final { return name_; }
-  size_t SizeInBytes() final {
-#if CPPGC_SUPPORTS_OBJECT_NAMES
-    return size_;
-#else   // !CPPGC_SUPPORTS_OBJECT_NAMES
-    return 0;
-#endif  // !CPPGC_SUPPORTS_OBJECT_NAMES
-  }
+  size_t SizeInBytes() final { return size_; }
 
   void SetWrapperNode(v8::EmbedderGraph::Node* wrapper_node) {
     wrapper_node_ = wrapper_node;
@@ -316,10 +308,10 @@ bool HasEmbedderDataBackref(Isolate* isolate, v8::Local<v8::Value> v8_value,
     return false;
 
   JSObject js_object = JSObject::cast(*v8_object);
-  return LocalEmbedderHeapTracer::VerboseWrapperInfo(
-             isolate->heap()->local_embedder_heap_tracer()->ExtractWrapperInfo(
-                 isolate, js_object))
-             .instance() == expected_backref;
+  return js_object.GetEmbedderFieldCount() >= 2 &&
+         LocalEmbedderHeapTracer::VerboseWrapperInfo(
+             LocalEmbedderHeapTracer::ExtractWrapperInfo(isolate, js_object))
+                 .instance() == expected_backref;
 }
 
 // The following implements a snapshotting algorithm for C++ objects that also
@@ -704,7 +696,6 @@ void CppGraphBuilderImpl::Run() {
     ParentScope parent_scope(
         states_.CreateRootState(AddRootNode("C++ cross-thread roots")));
     GraphBuildingVisitor object_visitor(*this, parent_scope);
-    cppgc::internal::PersistentRegionLock guard;
     cpp_heap_.GetStrongCrossThreadPersistentRegion().Trace(&object_visitor);
   }
 }

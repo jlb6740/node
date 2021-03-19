@@ -14,7 +14,6 @@
 #include "src/utils/ostreams.h"
 #include "src/wasm/baseline/liftoff-compiler.h"
 #include "src/wasm/wasm-code-manager.h"
-#include "src/wasm/wasm-engine.h"
 
 namespace v8 {
 namespace internal {
@@ -272,14 +271,16 @@ bool UseGenericWrapper(const FunctionSig* sig) {
   if (sig->returns().size() > 1) {
     return false;
   }
-  if (sig->returns().size() == 1 && sig->GetReturn(0).kind() != kI32 &&
-      sig->GetReturn(0).kind() != kI64 && sig->GetReturn(0).kind() != kF32 &&
-      sig->GetReturn(0).kind() != kF64) {
+  if (sig->returns().size() == 1 &&
+      sig->GetReturn(0).kind() != ValueType::kI32 &&
+      sig->GetReturn(0).kind() != ValueType::kI64 &&
+      sig->GetReturn(0).kind() != ValueType::kF32 &&
+      sig->GetReturn(0).kind() != ValueType::kF64) {
     return false;
   }
   for (ValueType type : sig->parameters()) {
-    if (type.kind() != kI32 && type.kind() != kI64 && type.kind() != kF32 &&
-        type.kind() != kF64) {
+    if (type.kind() != ValueType::kI32 && type.kind() != ValueType::kI64 &&
+        type.kind() != ValueType::kF32 && type.kind() != ValueType::kF64) {
       return false;
     }
   }

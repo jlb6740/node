@@ -8,7 +8,6 @@
 #include <algorithm>
 
 #include "include/cppgc/trace-trait.h"
-#include "include/cppgc/visitor.h"
 #include "src/heap/cppgc/compaction-worklists.h"
 #include "src/heap/cppgc/globals.h"
 #include "src/heap/cppgc/heap-object-header.h"
@@ -49,8 +48,7 @@ class MarkingStateBase {
   inline void ProcessWeakContainer(const void*, TraceDescriptor, WeakCallback,
                                    const void*);
 
-  inline void ProcessEphemeron(const void*, const void*, TraceDescriptor,
-                               Visitor&);
+  inline void ProcessEphemeron(const void*, TraceDescriptor);
 
   inline void AccountMarkedBytes(const HeapObjectHeader&);
   inline void AccountMarkedBytes(size_t);
@@ -267,23 +265,16 @@ void MarkingStateBase::ProcessWeakContainer(const void* object,
   if (desc.callback) PushMarked(header, desc);
 }
 
-void MarkingStateBase::ProcessEphemeron(const void* key, const void* value,
-                                        TraceDescriptor value_desc,
-                                        Visitor& visitor) {
+void MarkingStateBase::ProcessEphemeron(const void* key,
+                                        TraceDescriptor value_desc) {
   // Filter out already marked keys. The write barrier for WeakMember
   // ensures that any newly set value after this point is kept alive and does
   // not require the callback.
   if (HeapObjectHeader::FromPayload(key).IsMarked<AccessMode::kAtomic>()) {
-    if (value_desc.base_object_payload) {
-      MarkAndPush(value_desc.base_object_payload, value_desc);
-    } else {
-      // If value_desc.base_object_payload is nullptr, the value is not GCed and
-      // should be immediately traced.
-      value_desc.callback(&visitor, value);
-    }
+    MarkAndPush(value_desc.base_object_payload, value_desc);
     return;
   }
-  discovered_ephemeron_pairs_worklist_.Push({key, value, value_desc});
+  discovered_ephemeron_pairs_worklist_.Push({key, value_desc});
 }
 
 void MarkingStateBase::AccountMarkedBytes(const HeapObjectHeader& header) {
@@ -451,7 +442,9 @@ void DynamicallyTraceMarkedObject(Visitor& visitor,
                                   const HeapObjectHeader& header) {
   DCHECK(!header.IsInConstruction<mode>());
   DCHECK(header.IsMarked<mode>());
-  header.Trace<mode>(&visitor);
+  const GCInfo& gcinfo =
+      GlobalGCInfoTable::GCInfoFromIndex(header.GetGCInfoIndex<mode>());
+  gcinfo.trace(&visitor, header.Payload());
 }
 
 }  // namespace internal
